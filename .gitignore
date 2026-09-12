@@ -1,0 +1,30 @@
+# Dependencies and generated application output
+node_modules/
+dist/
+coverage/
+
+# Runtime output
+*.log
+npm-debug.log*
+
+# Local environment files may contain secrets; documented examples stay tracked.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Private keys and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Common editor and operating-system artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Windows attachment metadata files copied into WSL.
+*:Zone.Identifier
