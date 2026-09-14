@@ -7,21 +7,40 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env --watch src/server.js",
-    "start": "node --env-file-if-exists=.env src/server.js",
-    "test": "node --test",
-    "lint": "eslint ."
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "db:migrate": "npm run build && node --env-file-if-exists=.env dist/db/migrate.js",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:db": "node --env-file=.env --import tsx --test --test-concurrency=1 tests-db/*.test.ts",
+    "lint": "eslint .",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.build.json"
   },
   "dependencies": {
+    "@google/genai": "2.22.0",
     "cors": "2.8.6",
     "express": "5.2.1",
+    "express-rate-limit": "8.7.0",
     "helmet": "8.3.0",
+    "multer": "2.3.0",
+    "pg": "8.23.0",
+    "sharp": "0.35.4",
     "zod": "4.6.2"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@types/cors": "2.8.19",
+    "@types/express": "5.0.6",
+    "@types/multer": "2.2.0",
+    "@types/node": "24.13.4",
+    "@types/pg": "8.23.1",
+    "@types/supertest": "7.2.1",
     "eslint": "10.10.0",
     "globals": "17.12.0",
-    "supertest": "7.2.2"
+    "supertest": "7.2.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0"
   }
 }

@@ -2,6 +2,10 @@
 
 Planning only. No application implementation or implementation verification has been performed in this deliverable. All phase statuses begin as **NOT STARTED**. Detailed specifications and coding prompts are supplied for Phase 1 only.
 
+Migration note: this roadmap records the original planning state. The dedicated
+checkpoint completed after Phase 7 supersedes its JavaScript/JSX language choice
+with strict TypeScript/TSX while preserving phase numbering and scope.
+
 ## 1. Document and dependency review
 
 Sources: the original assignment, the earlier requirements analysis, the reviewed PRD/HLD/LLD, requirement traceability, design review, and the user's latest instructions. The original assignment and fixed scope decisions govern the design. The latest direct request limits this deliverable to the complete overview plus Phase 1 details/prompt; it overrides the attachment's request for detailed prompts for every phase. Comments are required.
@@ -35,7 +39,7 @@ Requirement IDs refer to PRD sections 7–8. A phase can contribute to a require
 
 ## 3. Fixed constraints throughout implementation
 
-- JavaScript ES modules/JSX; Node 24, Express 5, React/Vite/React Router; Recharts and useful React Hook Form/Zod when their feature is implemented. Exact compatible dependency versions are selected and locked during implementation.
+- Strict TypeScript ES modules/TSX; Node 24, Express 5, React/Vite/React Router; backend production executes emitted JavaScript with Node; Recharts and useful React Hook Form/Zod when their feature is implemented. Exact compatible dependency versions are selected and locked during implementation.
 - Aiven PostgreSQL through backend-only pg, one shared pool per process, parameterized queries, explicit SQL migrations and same-client transactions with finally-release. Verify TLS against the Aiven CA; never disable verification.
 - Mandatory single user, persisted singleton profile, current-only goals, no accounts/auth/ownership fields. Multi-user, chat and PDF import remain separate bonuses after the mandatory audit.
 - Consumption DATE is separate from timestamps. Asia/Kolkata is the initial persisted timezone; the backend derives today. Reject future consumption on create/update; inclusive queries may display future days. Weeks are Monday–Sunday.

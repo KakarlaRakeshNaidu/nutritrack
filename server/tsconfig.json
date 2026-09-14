@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "support/**/*.ts",
+    "tests/**/*.ts",
+    "tests-db/**/*.ts",
+    "tests-browser/**/*.ts"
+  ]
+}

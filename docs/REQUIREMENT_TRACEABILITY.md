@@ -34,3 +34,13 @@ This maps every mandatory assignment outcome and quality guideline to the review
 Fixed-stack coverage is explicit in HLD sections 1/5/8 and LLD sections 1/17/18/19/26: React, Vite, React Router, Recharts, useful React Hook Form/Zod, Node, Express, REST, authoritative Zod, Aiven PostgreSQL, pg, one shared pool, parameterized queries, migrations, transactions, Gemini, and Grok fallback. No stack substitution is proposed.
 
 Bonus traceability is deliberately separate: conversational actions, multi-user authentication/private data, and PDF import remain PRD section 12 only, with no mandatory tables/endpoints/dependencies. The initial analysis's optional goal-history and account recommendations are superseded by this reviewed mandatory design.
+
+## Phase 8 implementation evidence
+
+FR-008–FR-011 are implemented by the API-backed dashboard and reports route:
+Recharts calorie/macro visuals, exact accessible tables, unit-aware
+micronutrient coverage, and current-goal comparisons. FR-006/FR-007 and
+NFR-001/NFR-002/NFR-007 are covered by strict URL parsing, paired 366-day
+ranges, grouping/page controls, stale-response protection, explicit
+loading/error/empty/out-of-range states, and desktop/mobile real-browser checks.
+The detailed command results and owned-schema proof are in PHASE_8_VERIFICATION.md.

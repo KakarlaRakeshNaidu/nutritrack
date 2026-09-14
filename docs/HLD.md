@@ -2,11 +2,20 @@
 
 Status: reviewed. Implements PRD FR-001–FR-018 and NFR-001–NFR-008 using the user's fixed stack. Meaningful comments are required. This is a design document, not application code or an implementation-phase plan.
 
+Migration note: the dedicated checkpoint after Phase 7 supersedes the original
+JavaScript/JSX language decision. Completed application code now uses strict
+TypeScript/TSX while retaining Node ES modules and the same architecture.
+
+
+Phase 8 implementation note: the dashboard and reports route now consume the
+existing nutrition-report root contract directly. Recharts is confined to
+presentation; full-range calculations, calendar buckets, coverage, goal scope,
+and future-state semantics remain backend-owned.
 ## 1. Architecture overview
 
 Use a modular monolith: a React/Vite browser application, a separate Node.js/Express REST API, and Aiven PostgreSQL. Application services own business behavior; repositories own parameterized SQL. The API is the only application-data boundary available to the frontend. There is one shared diary, one current goal configuration, and one persisted singleton profile. No mandatory request includes authentication or account ownership.
 
-Use ordinary JavaScript ES modules and JSX. Prefer named functions and focused feature files over class hierarchies or a dependency-injection framework. React Router provides navigation; Recharts renders server-calculated report data; React Hook Form and Zod support useful form validation. Backend Zod validation is authoritative. Node.js 24 LTS is the selected runtime family; exact dependency versions will be pinned together when implementation is authorized. [Node.js releases](https://nodejs.org/en/about/previous-releases)
+Use strict TypeScript ES modules and TSX. Prefer named functions and focused feature files over class hierarchies or a dependency-injection framework. React Router provides navigation; Recharts renders server-calculated report data; React Hook Form and Zod support useful form validation. Backend Zod validation remains authoritative at runtime. Node.js 24 LTS is the selected runtime family; backend production runs emitted JavaScript rather than a TypeScript development loader. [Node.js releases](https://nodejs.org/en/about/previous-releases)
 
 ## 2. Architecture diagram
 

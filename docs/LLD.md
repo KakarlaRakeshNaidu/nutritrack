@@ -2,37 +2,41 @@
 
 Status: reviewed implementation specification. Follow the original assignment and fixed decisions represented in PRD/HLD. Comments are required for important logic/decisions. Everything below describes intended files, schemas, contracts, and tests; no application code, SQL migration files, or implementation phases are produced by this deliverable.
 
+Migration note: the post-Phase-7 TypeScript checkpoint supersedes the original
+JavaScript/JSX language and filename examples. Historical phase evidence remains
+unchanged; current application and test source uses strict TypeScript/TSX.
+
 The mandatory application is single-user. Authentication, account management, and independent-user ownership are bonus-only and absent from this schema and request flow.
 
 ## 1. Repository structure
 
-Use JavaScript ES modules, JSX, Node.js 24 LTS, Express 5, React/Vite, React Router, Recharts, React Hook Form, Zod, and `pg`. Commit dependency lockfiles during implementation. Supporting backend packages have specific jobs: `cors`, `helmet`, `express-rate-limit`, `multer`, `sharp`, and `@google/genai` for Gemini transport. Grok uses Node's native fetch. Use plain functions; no ORM, global service container, generic CRUD framework, or abstract provider class is needed.
+Use strict TypeScript ES modules, TSX, Node.js 24 LTS, Express 5, React/Vite, React Router, Recharts, React Hook Form, Zod, and `pg`. Compile backend production source to JavaScript and run the emitted entrypoint with Node; Vite owns frontend emission. Commit dependency lockfiles during implementation. Supporting backend packages have specific jobs: `cors`, `helmet`, `express-rate-limit`, `multer`, `sharp`, and `@google/genai` for Gemini transport. Grok uses Node's native fetch. Use plain functions; no ORM, global service container, generic CRUD framework, or abstract provider class is needed.
 
 | Intended path | Responsibility |
 | --- | --- |
 | `README.md` | Reproducible setup, run, validation, assumptions, and limitations. |
 | `client/package.json`, `server/package.json` | Separate application dependencies and scripts. |
-| `client/src/main.jsx`, `App.jsx` | React bootstrap and React Router routes. |
-| `client/src/api/client.js` | Central JSON/multipart requests and error parsing. |
-| `client/src/api/meals.js`, `goals.js`, `reports.js`, `nutrition.js`, `profile.js` | Small named endpoint wrappers. |
+| `client/src/main.tsx`, `App.tsx` | React bootstrap and React Router routes. |
+| `client/src/api/client.ts` | Central JSON/multipart requests and error parsing. |
+| `client/src/api/meals.ts`, `goals.ts`, `reports.ts`, `nutrition.ts`, `profile.ts` | Small named endpoint wrappers. |
 | `client/src/pages/` | Dashboard, MealHistory, MealEditor, Goals, Reports, ImageEntry. |
 | `client/src/components/` | Reusable form, filter, pagination, chart, upload, and state components. |
 | `client/src/validation/` | UX form schemas and blank/number conversion. |
-| `client/src/utils/calendar.js`, `nutritionFields.js` | Date-only presentation helpers; fixed field labels/units. |
+| `client/src/utils/dates.ts`, `nutrition.ts` | Date-only presentation helpers; fixed field labels/units. |
 | `client/src/styles/` | Responsive styles and shared visual tokens. |
-| `server/src/app.js`, `server.js` | Express composition separate from process startup/shutdown. |
-| `server/src/config/env.js`, `constants.js` | Validated environment and fixed limits/enums. |
-| `server/src/db/pool.js`, `transaction.js`, `migrate.js` | One pool, transaction lifetime, explicit migration runner. |
-| `server/src/modules/meals/` | `meal.routes.js`, `meal.controller.js`, `meal.service.js`, `meal.repository.js`, `meal.schemas.js`. |
+| `server/src/app.ts`, `server.ts` | Express composition separate from process startup/shutdown. |
+| `server/src/config/env.ts`, `constants.ts` | Validated environment and fixed limits/enums. |
+| `server/src/db/pool.ts`, `transaction.ts`, `migrate.ts` | One pool, transaction lifetime, explicit migration runner. |
+| `server/src/modules/meals/` | `meal.routes.ts`, `meal.controller.ts`, `meal.service.ts`, `meal.repository.ts`, `meal.schemas.ts`. |
 | `server/src/modules/goals/` | Corresponding focused goal files. |
 | `server/src/modules/reports/` | Report route/controller/service/repository/schema files. |
 | `server/src/modules/profile/` | Read-only singleton profile/date context; thin route/controller/service/repository files. |
-| `server/src/modules/nutrition/` | Extraction route/controller, `ai.service.js`, `ai.schemas.js`, `image.js`, provider modules. |
-| `server/src/modules/nutrition/providers/` | `gemini.provider.js`, `grok.provider.js`; vendor transport and response adaptation only. |
+| `server/src/modules/nutrition/` | Extraction route/controller, `ai.service.ts`, `ai.schemas.ts`, `image.ts`, provider modules. |
+| `server/src/modules/nutrition/providers/` | `gemini.provider.ts`, `grok.provider.ts`; vendor transport and response adaptation only. |
 | `server/src/middleware/` | Validation, request ID, upload/rate limits, not-found, centralized errors. |
-| `server/src/utils/calendar.js`, `errors.js`, `numbers.js` | Focused date, error, and validated serialization helpers. |
+| `server/src/utils/calendar.ts`, `errors.ts`, `numbers.ts` | Focused date, error, and validated serialization helpers. |
 | `server/migrations/001_initial_schema.sql` | Intended initial schema and singleton seed, executed explicitly. |
-| `server/tests/`, `client/tests/` | Focused tests from section 27. |
+| `server/tests/**/*.ts`, `client/tests/**/*.ts(x)` | Focused tests from section 27. |
 | `docs/` | PRD, HLD, LLD, traceability, and design review. |
 
 A thin controller may contain only HTTP translation; do not create another service/repository layer when it has no separate responsibility. Shared calendar/validation policies have one authoritative backend implementation. The required client-side mirror is tested against contract fixtures.
@@ -332,7 +336,7 @@ Required comments explain why: DATE strings are preserved, query filters precede
 
 ## 17. pg.Pool and transaction lifecycle
 
-`db/pool.js` initializes one shared pool per backend process from validated configuration. Selected defaults: max 5 clients, connectionTimeoutMillis 5,000, idleTimeoutMillis 30,000, and database statement timeout 10,000 ms for normal requests. Migrations can use a documented longer statement timeout in their separate CLI process. Neither controllers nor repositories instantiate another pool.
+`db/pool.ts` initializes one shared pool per backend process from validated configuration. Selected defaults: max 5 clients, connectionTimeoutMillis 5,000, idleTimeoutMillis 30,000, and database statement timeout 10,000 ms for normal requests. Migrations can use a documented longer statement timeout in their separate CLI process. Neither controllers nor repositories instantiate another pool.
 
 Use pool.query for isolated atomic statements. For transactional operations, acquire once, begin, run every statement using that same client, commit on success or rollback on failure, and release in finally. List count/page and report multi-query reads use REPEATABLE READ READ ONLY. Migrations use a write transaction for schema work plus its applied-version record. Never hold a database transaction open while calling AI. [pg transaction rules](https://node-postgres.com/features/transactions)
 
@@ -342,7 +346,7 @@ TLS: load the Aiven CA through PG_CA_CERT_PATH and verify the server certificate
 
 ## 18. Zod schema specifications
 
-These are declarative schemas to implement, not generated JavaScript. Use Zod 4 and strict objects. Provider JSON Schema is derived from the supported basic shape; cross-field refinements are also enforced locally. A schema-construction exception is a programming failure and is not eligible for provider fallback. [Zod schema reference](https://zod.dev/api)
+These are declarative schemas to implement, not generated source code. Use Zod 4 and strict objects. Provider JSON Schema is derived from the supported basic shape; cross-field refinements are also enforced locally. A schema-construction exception is a programming failure and is not eligible for provider fallback. [Zod schema reference](https://zod.dev/api)
 
 | Schema | Fields and refinements |
 | --- | --- |
@@ -418,7 +422,7 @@ Resolve static meal routes before parameterized routes. There is no login route 
 
 ## 22. Frontend components and state
 
-MealForm is shared by create/edit/image paths and displays consumed-total semantics, source/estimate state, and unit labels. MealList, MealFilters, and PaginationControls cover history. GoalForm handles nullable targets. CalorieTrendChart, MacroBreakdownChart, MicronutrientSummary, and GoalComparisonChart consume report fields directly. NutritionImageUpload and NutritionExtractionPreview manage selection and unsaved suggestions. Small shared LoadingState/EmptyState/ErrorMessage components are justified by actual reuse.
+MealForm is shared by create/edit/image paths and displays consumed-total semantics, source/estimate state, and unit labels. MealList, MealFilters, and PaginationControls cover history. GoalForm handles nullable targets. CalorieTrendChart, MacroBreakdownChart, MicronutrientSummary, and GoalComparison consume report fields directly. NutritionImageUpload and NutritionExtractionPreview manage selection and unsaved suggestions. Small shared LoadingState/EmptyState/ErrorMessage components are justified by actual reuse.
 
 Use local component state plus React Hook Form; URL search params store history/report filters where useful. No additional global-store layer. Abort stale reads when filters change; do not let an older response overwrite a newer result. After POST/PUT/DELETE or goal replacement, refetch affected active views; dashboard/reports fetch on entry/focus. Preserve form values after failed saves. Disable repeated submit while pending. Confirmation of delete is sufficient; a browser or simple dialog is acceptable.
 

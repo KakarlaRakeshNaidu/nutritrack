@@ -2,6 +2,7 @@
 node_modules/
 dist/
 coverage/
+*.tsbuildinfo
 
 # Runtime output
 *.log
@@ -19,6 +20,7 @@ npm-debug.log*
 *.pfx
 *.crt
 *.cer
+certs/
 
 # Common editor and operating-system artifacts
 .DS_Store
@@ -28,3 +30,6 @@ Thumbs.db
 
 # Windows attachment metadata files copied into WSL.
 *:Zone.Identifier
+
+# Interview preparation notes (personal, not part of project)
+interview-prep/

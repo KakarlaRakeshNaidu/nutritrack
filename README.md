@@ -1,165 +1,695 @@
 # Personal Calorie Tracker
 
 Personal Calorie Tracker is a staged full-stack application for recording meals
-and understanding personal nutrition. Phase 2 adds the backend infrastructure
-needed by later domain work: strict startup configuration, safe JSON errors,
-request correlation, security/CORS policy, reusable request validation, and
-calendar-date utilities. Meal, goal, report, database, and image-analysis
-features remain planned and are not represented as working here.
+and understanding personal nutrition. Phase 9 adds a validated backend image
+extraction API to the persisted diary, profile, goals, dashboard, and reporting
+workflows completed in earlier phases. A nutrition-label or plate image can now
+produce a strictly validated, editable meal draft through Gemini with a narrowly
+eligible xAI Grok fallback. Extraction never saves a meal; the user must review
+the draft and submit the ordinary meal POST separately. The Phase 9 scope is
+backend-only and adds no upload UI.
+
+All completed application source, tests, and executable support code are written
+in strict TypeScript. The backend production build emits JavaScript to
+`server/dist`; production startup executes that compiled output with Node.
 
 ## Stack and prerequisites
 
 - Node.js 24.x (verified with 24.16.0)
 - npm 11.x (verified with 11.13.0)
-- React 19.3.0, Vite 8.3.0, and React Router 7.18.3
-- Express 5.2.1, Zod 4.6.2, Helmet 8.3.0, and CORS 2.8.6
-- ESLint 10.10.0, Node's test runner/Supertest, and
-  Vitest 5.0.0/React Testing Library
+- React 19.3.0, Vite 8.3.0, React Router 7.18.3, Recharts 3.10.1,
+  React Hook Form 7.88.0, and @hookform/resolvers 5.9.1
+- Express 5.2.1, pg 8.23.0, Zod 4.6.2, Helmet 8.3.0, CORS 2.8.6,
+  Multer 2.3.0, Sharp 0.35.4, express-rate-limit 8.7.0, and
+  @google/genai 2.22.0
+- ESLint 10.10.0, Node test runner/Supertest, Vitest, and React Testing Library
+- TypeScript 5.9.3 with strict NodeNext backend and bundler-aware frontend
+  configurations; `tsx` is used only for development and source-level tests
 
-The repository uses independent npm packages rather than a root workspace.
-With nvm installed, select the declared runtime from the repository root:
+The client and server are independent npm packages. From the repository root:
 
-```bash
+~~~bash
 nvm install
 nvm use
-```
-
-Install exactly the versions recorded in each lockfile:
-
-```bash
 npm --prefix server ci
 npm --prefix client ci
-```
+~~~
 
-## Environment
+## Backend environment and TLS
 
-The backend loads `server/.env`, when present, through Node's native
-environment-file support. Copy the safe template and replace its placeholders:
+The backend loads server/.env through Node native environment-file support.
+Copy the safe template and replace placeholders:
 
-```bash
+~~~bash
 cp server/.env.example server/.env
-```
+~~~
 
-Phase 2 validates these core settings before opening the HTTP listener:
+Configure PORT, NODE_ENV, CLIENT_ORIGIN, TRUST_PROXY_HOPS, DATABASE_URL, and
+PG_CA_CERT_PATH. DATABASE_URL must be a PostgreSQL URI without any ssl-prefixed
+query option. PG_CA_CERT_PATH must identify the trusted provider CA in WSL.
 
-- `PORT`: optional decimal integer from 1 through 65535; defaults to `3000`.
-- `NODE_ENV`: optional `development`, `test`, or `production`; defaults
-  to `development`.
-- `CLIENT_ORIGIN`: one exact HTTP(S) browser origin, with no path, wildcard,
-  credentials, query, fragment, or origin list.
-- `TRUST_PROXY_HOPS`: optional nonnegative decimal integer; defaults to `0`.
-- `DATABASE_URL`: a PostgreSQL URL with a host and one database path. TLS query
-  overrides such as `sslmode` and `sslrootcert` are rejected.
-- `PG_CA_CERT_PATH`: a nonblank CA-certificate path.
+The process owns one shared pg.Pool. It verifies the configured CA with
+rejectUnauthorized enabled, allows at most five connections, and uses bounded
+connection, idle, and statement timeouts. Startup proves connectivity before
+listening. Logs do not print database URLs, certificate paths, SQL, or secrets.
 
-Database settings are syntax-checked only in Phase 2. Startup does not read the
-certificate or connect to PostgreSQL; those actions belong to Phase 3.
+Gemini uses the optional GEMINI_API_KEY and GEMINI_MODEL pair. Grok uses the
+optional XAI_API_KEY and GROK_MODEL pair. A pair is configured only when both
+members are present and nonblank. Missing AI configuration does not block
+startup or any manual/profile/goal/report API, but extraction returns a safe
+configuration error when the required provider is unavailable. GROQ_API_KEY and
+GROQ_MODEL refer to a different service and are not xAI Grok configuration. The
+browser receives no provider credentials. Never put backend credentials into
+VITE-prefixed values or tracked example files.
 
-Gemini and Grok settings are optional key/model pairs. A wholly absent pair is
-disabled, a complete nonblank pair is configured, and a partial pair produces a
-safe warning without blocking startup. Never commit real credentials.
+## Database setup
 
-`client/.env.example` documents:
+Migrations are explicit operator actions, not application-startup behavior.
+Inspect the configured target, then run:
 
-```dotenv
-VITE_API_BASE_URL=http://localhost:3000/api/v1
-```
+~~~bash
+npm --prefix server run db:migrate
+npm --prefix server run db:migrate
+~~~
 
-That public value is reserved for frontend API access added in a later phase;
-the current page makes no API request. Never place database credentials,
-provider keys, or other backend secrets in variables prefixed with `VITE_`,
-because Vite exposes those variables to browser code.
+The first run applies pending migration files atomically under an advisory lock.
+The second must report that the schema is current. Migration 001 creates the
+singleton profile and goals plus the constrained meals table. It seeds no meals.
+Do not edit an applied migration or reset a database to conceal conflicts.
 
-Real `.env` files and common private key/certificate formats are ignored.
-The example files remain trackable.
+The profile defaults to Personal user and Asia/Kolkata. An authorized operator
+may update the singleton name/timezone directly before use. The persisted IANA
+timezone defines the backend value of today; it never rewrites meal DATE values.
 
 ## Run the applications
 
-Run the backend and frontend in separate terminals from the repository root:
+Run these in separate terminals:
 
-```bash
+~~~bash
 npm --prefix server run dev
 npm --prefix client run dev
-```
+~~~
 
-The API listens at <http://localhost:3000>. Phase 2 intentionally defines no
-domain endpoints. Unknown routes return the standard JSON error envelope with a
-server-generated `X-Request-ID`. API JSON bodies are capped at 100,000 bytes;
-malformed, oversized, invalid, unknown-route, and internal failures are mapped
-to stable JSON errors. CORS permits only the configured client origin, while
-same-origin or non-browser requests without an `Origin` header remain usable.
+The API defaults to http://localhost:3000/api/v1 and the client to
+http://localhost:5173. Build before starting the production backend:
 
-The browser application is available at <http://localhost:5173>. Its single root
-route is a truthful introduction to the staged product. Vite is configured to
-fail instead of silently selecting another port when 5173 is occupied.
-
-For ordinary backend startup without file watching:
-
-```bash
+~~~bash
+npm --prefix server run build
 npm --prefix server start
-```
+~~~
 
-## Quality checks
+`npm start` runs `server/dist/server.js` with Node and does not depend on a
+TypeScript development runner. The build removes only stale `server/dist`
+output, type-checks production source, and emits a fresh build.
 
-Run lint and the nonempty test suites from the repository root:
+This is a mandatory single-user application and has no authentication or
+ownership fields.
 
-```bash
+Set VITE_API_BASE_URL only when the browser should use a non-default API:
+
+~~~bash
+VITE_API_BASE_URL=http://localhost:3000/api/v1 npm --prefix client run dev
+~~~
+
+This value is a public browser URL, not a place for secrets.
+
+The backend CLIENT_ORIGIN must exactly match the browser origin. The standard
+development origin is http://localhost:5173 and preview is
+http://localhost:4173; change the configured origin between those checks rather
+than disabling CORS or allowing a wildcard.
+
+## Image extraction API
+
+POST /api/v1/nutrition/extract accepts multipart/form-data with exactly one
+nonempty file field named image and one text field named image_type. The mode
+must be nutrition_label or food_plate; query parameters, duplicate or unknown
+fields, and extra files are rejected.
+
+Declared JPEG, PNG, and WebP are accepted. The image itself may be at most
+10,000,000 bytes, inclusive; multipart overhead is not included. Actual decoded
+content must match the declared MIME. Corrupt, truncated, animated/multi-frame,
+or over-25,000,000-pixel inputs are rejected. Accepted input is auto-oriented,
+flattened on white, fitted within 3072×3072 without enlargement, and normalized
+to JPEG quality 90 with a 10,000,000-byte output cap.
+
+Example:
+
+~~~bash
+curl -i http://localhost:3000/api/v1/nutrition/extract \
+  -F image_type=nutrition_label \
+  -F 'image=@synthetic-label.png;type=image/png'
+~~~
+
+A successful label response is an editable draft, for example:
+
+~~~json
+{
+  "data": {
+    "provider": "gemini",
+    "image_type": "nutrition_label",
+    "is_estimate": false,
+    "source_basis": "one 100 g serving",
+    "assumptions": [],
+    "draft": {
+      "food_name": "Synthetic example",
+      "meal_type": null,
+      "consumption_date": "2026-09-14",
+      "consumed_quantity": 100,
+      "quantity_unit": "g",
+      "calories_kcal": 250,
+      "protein_g": 10,
+      "carbs_g": 30,
+      "fat_g": 8,
+      "micronutrients": {
+        "sodium_mg": 400,
+        "calcium_mg": null,
+        "iron_mg": null,
+        "potassium_mg": null,
+        "vitamin_c_mg": null,
+        "vitamin_d_mcg": null
+      },
+      "entry_source": "nutrition_label",
+      "is_estimate": false
+    },
+    "missing_fields": ["meal_type"]
+  }
+}
+~~~
+
+The provider may leave unsupported facts as null. Known zero remains zero.
+missing_fields deterministically lists only values still required by the
+ordinary meal-write contract. consumption_date, source, estimate status, and
+provider identity are server-owned. A plate returns one whole-plate estimate
+with explicit assumptions rather than component records. A label uses one
+coherent quantity column: values stated per 100 g remain the totals for that
+100 g basis, are not multiplied again, and percent Daily Value is never treated
+as a nutrient amount.
+
+Extraction is read-only. It performs no meal insert/update, stores no image
+locally, and uses no provider file API. To persist a reviewed result, fill every
+missing required field and send the completed draft to POST /api/v1/meals.
+Provider store=false makes these requests stateless at the API level but is not
+a blanket promise about provider retention policies.
+
+Gemini is attempted once through the Interactions API with structured JSON and
+automatic retries disabled. Exactly one Grok Responses API attempt is allowed
+only after Gemini availability failures (deadline, recognized transport failure,
+429, or 5xx) or invalid output. Missing/rejected configuration, explicit content
+refusal, valid unreadable/not-food status, caller cancellation, and application
+defects are terminal and never trigger fallback. Grok also uses structured JSON,
+store=false, no tools, and no automatic application retry.
+
+Each provider attempt is capped at 25 seconds. The complete post-upload flow,
+including image work and any fallback, is capped at 55 seconds; image processing
+has its own five-second bound. Multipart upload waiting is capped at 15 seconds.
+Caller disconnect and server shutdown propagate cancellation to worker/provider
+requests before resources are released.
+
+Admission is local to each backend process: at most two extraction requests run
+concurrently, with no queue, and each IP may make 10 extraction requests per
+10-minute window. Rejections return 429 with Retry-After. These limits do not
+apply to the manual APIs and are not distributed across multiple processes.
+
+Phase 9 extraction-specific errors include:
+
+| Status | Codes |
+| --- | --- |
+| 400 | MALFORMED_MULTIPART |
+| 408 | UPLOAD_TIMEOUT |
+| 413 | IMAGE_TOO_LARGE |
+| 415 | UNSUPPORTED_MEDIA_TYPE |
+| 422 | VALIDATION_ERROR, IMAGE_INVALID, IMAGE_UNREADABLE, IMAGE_NOT_FOOD, IMAGE_ANALYSIS_REFUSED |
+| 429 | AI_RATE_LIMITED, AI_BUSY |
+| 500 | INTERNAL_ERROR |
+| 502 | AI_INVALID_OUTPUT |
+| 503 | AI_CONFIGURATION_ERROR, AI_FALLBACK_UNAVAILABLE, AI_PROVIDERS_UNAVAILABLE |
+
+All use the shared redacted error envelope and server request ID. Upstream bodies,
+raw provider output, credentials, SQL, and image buffers are never logged.
+
+The credential-free Phase 9 suite is part of the ordinary server test command.
+The bounded live transport/no-persistence harness is deliberately separate
+because it consumes configured provider calls and touches a temporary owned
+database schema:
+
+~~~bash
+cd server
+node --import tsx support/phase9-live-verification.ts
+~~~
+
+The harness creates a unique nutritrack_p9_* schema, verifies the synthetic
+label and permitted plate through the real route, optionally verifies one real
+xAI fallback when XAI_API_KEY/GROK_MODEL are configured, compares table digests,
+drops only its owned schema, and closes its pool. It prints model names, bounded
+call counts, timings, and observed synthetic values, never keys or raw payloads.
+
+
+## Meal API
+
+| Method and path | Success | Purpose |
+| --- | --- | --- |
+| POST /api/v1/meals | 201 plus Location | Create one complete meal |
+| GET /api/v1/meals | 200 | Filter and page meal history |
+| GET /api/v1/meals/:id | 200 | Read one meal |
+| PUT /api/v1/meals/:id | 200 | Fully replace every writable field |
+| DELETE /api/v1/meals/:id | 204 empty | Physically delete one meal |
+
+POST and PUT require Content-Type application/json; charset parameters are
+accepted. Their body stream is limited to exactly 65,536 bytes (64 KiB) before
+the broader 100,000-byte API parser can consume it. Bodies above that limit
+receive 413. Malformed JSON receives 400, an incompatible body media type
+receives 415, and schema failures receive 422.
+
+A complete POST or PUT body is:
+
+~~~json
+{
+  "food_name": "Example yogurt",
+  "meal_type": "breakfast",
+  "consumption_date": "2026-09-10",
+  "consumed_quantity": 150,
+  "quantity_unit": "g",
+  "calories_kcal": 180,
+  "protein_g": 9,
+  "carbs_g": 27,
+  "fat_g": 3,
+  "micronutrients": {
+    "sodium_mg": 0,
+    "calcium_mg": 120,
+    "iron_mg": null,
+    "potassium_mg": null,
+    "vitamin_c_mg": null,
+    "vitamin_d_mcg": null
+  },
+  "entry_source": "manual",
+  "is_estimate": false
+}
+~~~
+
+Every shown key is required. Unknown, server-owned, and nested extra keys are
+rejected. food_name is trimmed and limited to 200 characters. Supported meal
+types are breakfast, lunch, dinner, and snacks. Quantity units are g, ml,
+serving, and piece. Entry sources are manual, nutrition_label, and food_plate;
+food_plate requires is_estimate true.
+
+Amounts are finite JSON numbers from zero through 1,000,000 with at most four
+decimal places; consumed_quantity must be greater than zero. All six
+micronutrient keys are required, but their values may be null. Known zero stays
+zero and unknown stays null.
+
+Nutrition fields are totals for the entire consumed quantity. A 150 g entry
+with 180 kcal stores and contributes 180 kcal. Changing quantity to 300 while
+explicitly submitting 180 kcal still stores 180 kcal; the server never rescales
+or derives nutrition.
+
+consumption_date is a real YYYY-MM-DD Gregorian date from 1900 through 9999.
+POST and PUT reject dates after today in the persisted profile timezone.
+Listing may use future bounds. IDs and timestamps are server-owned; DATE values
+remain strings and timestamps are returned as UTC ISO strings.
+
+Example:
+
+~~~bash
+curl -i -X POST http://localhost:3000/api/v1/meals \
+  -H 'Content-Type: application/json' \
+  --data-binary @meal.json
+~~~
+
+PUT is a full replacement, never an upsert. It preserves id and created_at and
+sets updated_at. A valid missing UUID returns 404 MEAL_NOT_FOUND; a malformed
+UUID returns 422. DELETE is physical, and a repeated delete returns 404.
+
+## Goal API
+
+| Method and path | Success | Purpose |
+| --- | --- | --- |
+| GET /api/v1/goals | 200 | Read the current singleton goal configuration |
+| PUT /api/v1/goals | 200 | Fully replace all five goal values |
+
+GET accepts no query string or request body. PUT requires Content-Type
+application/json; charset parameters are accepted. PUT uses the existing shared
+100,000-byte API limit measured from the actual request stream. Bodies above
+that limit receive 413. Malformed JSON receives 400, incompatible body media
+types receive 415, and schema failures receive 422.
+
+Every PUT must provide this complete strict body:
+
+~~~json
+{
+  "daily_calories_kcal": 2200,
+  "daily_protein_g": 0,
+  "daily_carbs_g": 250.5,
+  "daily_fat_g": null,
+  "target_weight_kg": 72.3456
+}
+~~~
+
+Each value may be null. When set, calories and target weight must be greater
+than zero; macro targets may be zero. All numbers must be finite JSON numbers
+no greater than 1,000,000 with at most four decimal places. Numeric strings,
+omitted keys, unknown keys, partial updates, and server-owned fields are
+rejected. Zero remains a configured macro target while null remains unset.
+
+The response is data containing those five fields plus updated_at as a UTC ISO
+timestamp. The API never exposes id or created_at. PUT performs one
+parameterized UPDATE of id 1, preserves created_at, updates updated_at, and is
+never an insert or upsert. The migrated singleton makes the first setting and
+every later replacement the same operation. An all-null replacement clears all
+targets. POST, PATCH, DELETE, goal history, ownership fields, and weight
+measurements are not supported. A missing singleton fails safely with the
+generic 500 contract instead of recreating data.
+
+Example:
+
+~~~bash
+curl -i -X PUT http://localhost:3000/api/v1/goals \
+  -H 'Content-Type: application/json' \
+  --data-binary @goals.json
+~~~
+
+## Filtering and pagination
+
+GET /api/v1/meals accepts only:
+
+- start_date: optional inclusive YYYY-MM-DD lower bound.
+- end_date: optional inclusive YYYY-MM-DD upper bound.
+- meal_type: optional supported category.
+- page: default 1, maximum 2,147,483,647.
+- page_size: default 20, range 1 through 100.
+
+One date bound is valid. When both are supplied, start_date must not follow
+end_date. Future bounds are valid. Repeated, unknown, blank, signed,
+fractional, or exponential query values are rejected. Decimal strings with
+leading zeroes are accepted and normalized to their integer value.
+
+Filters apply before both count and page reads. Results are ordered by
+consumption_date descending, then created_at descending, then id descending.
+Count and page queries run on one checked-out client in a short REPEATABLE READ
+READ ONLY transaction.
+
+~~~json
+{
+  "items": [],
+  "pagination": {
+    "page": 1,
+    "page_size": 20,
+    "total_items": 0,
+    "total_pages": 0
+  }
+}
+~~~
+
+A page beyond the end remains a 200 with empty items and the true filtered
+total_items and total_pages. An empty match has total_pages zero.
+
+## Nutrition report API
+
+GET /api/v1/reports/nutrition accepts no request body. Its only query
+parameters are:
+
+- start_date and end_date: an optional pair of inclusive YYYY-MM-DD dates.
+  Supplying neither resolves the current Monday-through-Sunday week from one
+  captured clock instant and the persisted profile timezone.
+- group_by: day (default) or week.
+- page: calendar-bucket page, default 1.
+- page_size: calendar buckets per page, default 20 and maximum 100.
+
+Explicit ranges may include future dates but must contain at most 366 inclusive
+calendar dates. Reversed, invalid, unpaired, repeated, unknown, blank, signed,
+fractional, and exponential values are rejected; meal_type is deliberately not
+a report filter. A 366-day leap-year range such as 2024-01-01 through
+2024-12-31 is valid, while ending 2025-01-01 is 367 days and is rejected. The
+meal-history endpoint keeps its independent, uncapped date-range behavior.
+
+The response is not wrapped in data:
+
+~~~json
+{
+  "range": {
+    "start_date": "2026-09-07",
+    "end_date": "2026-09-13",
+    "group_by": "day",
+    "timezone": "Asia/Kolkata",
+    "today": "2026-09-12"
+  },
+  "summary": {
+    "entry_count": 25,
+    "logged_day_count": 1,
+    "calories_kcal": 250,
+    "protein_g": 0,
+    "carbs_g": 0,
+    "fat_g": 0,
+    "micronutrients": {
+      "sodium_mg": {
+        "unit": "mg",
+        "known_total": 120,
+        "known_count": 3,
+        "unknown_count": 1,
+        "entry_count": 4
+      }
+    }
+  },
+  "goal_snapshot": {
+    "daily_calories_kcal": 2000,
+    "daily_protein_g": 0,
+    "daily_carbs_g": null,
+    "daily_fat_g": 70,
+    "target_weight_kg": 75,
+    "updated_at": "2026-09-12T00:00:00.000Z"
+  },
+  "goal_comparison": {
+    "basis": "current_daily_targets",
+    "scope_start": "2026-09-07",
+    "scope_end": "2026-09-12",
+    "day_count": 6,
+    "calories_kcal": {
+      "actual": 250,
+      "target": 12000,
+      "difference": -11750,
+      "percent": 2.08
+    }
+  },
+  "items": [],
+  "pagination": {
+    "page": 99,
+    "page_size": 20,
+    "total_items": 7,
+    "total_pages": 1
+  }
+}
+~~~
+
+The real response includes all four core nutrients in each comparison and all
+six micronutrients in each summary. Core totals are zero for empty ranges.
+Micronutrients report units and coverage: an all-unknown total is null, while a
+known total of zero is 0. Day and week items flatten the same summary fields and
+also provide period_start, period_end, covered_start, covered_end,
+calendar_day_count, elapsed_day_count, temporal_state, and goal_comparison.
+Weekly period labels remain canonical Monday/Sunday dates; covered dates are
+clipped to the requested range.
+
+The root summary and comparison always cover the complete selected range,
+regardless of grouping or page. Empty calendar buckets are created before
+pagination in ascending order. Therefore an out-of-range page has empty items
+but unchanged full-range summary, comparison, and true bucket totals.
+
+Comparisons use the currently persisted daily targets across elapsed selected
+dates through today, including unlogged dates; they are not historical goal
+snapshots. Future-only scopes have actual zero and null targets. An unset target
+stays null. A configured zero macro target returns target zero and the actual
+difference, but percent remains null. Percentages are rounded to two decimal
+places and are not clamped. target_weight_kg appears only in goal_snapshot.
+
+One short REPEATABLE READ READ ONLY transaction uses one checked-out client for
+profile, current goals, and a bounded per-day PostgreSQL aggregate. Stored
+consumed totals are summed once. PostgreSQL NUMERIC strings are combined with
+exact decimal arithmetic before finite JSON numbers are serialized; no
+per-meal output cap is applied to valid aggregate totals.
+
+Example:
+
+~~~bash
+curl 'http://localhost:3000/api/v1/reports/nutrition?start_date=2026-09-10&end_date=2026-09-15&group_by=week&page=1&page_size=20'
+~~~
+
+## Manual web workflows
+
+The client routes are:
+
+- / for the API-backed current-week dashboard.
+- /meals for URL-backed filters and pagination.
+- /meals/new for complete manual meal creation.
+- /meals/:id/edit for complete meal replacement.
+- /goals for current goal retrieval and full replacement.
+- /reports for URL-backed date/grouping controls and chart-bucket pagination.
+
+The shared meal form sends every writable field explicitly. Blank micronutrients
+become null, while typed zero remains zero. Nutrition numbers are always consumed
+totals and are not rescaled when quantity changes. The backend profile supplies
+the authoritative current date and profile timezone context.
+
+Meal filters and page state are encoded in the URL. Empty and out-of-range
+results, loading, API errors, retry actions, deletion confirmation, and frontend
+404s have explicit UI states. Older list responses cannot overwrite a newer
+request. Mutations are never retried automatically; when transport failure makes
+a save ambiguous, the UI tells the user to inspect persisted history before
+submitting again.
+
+Goal saves are complete PUT replacements. Clearing all fields and saving sends
+five null values; a visible macro zero remains a configured zero target.
+
+The dashboard and reports page use only the root nutrition-report response.
+Calorie trends and macro grams use Recharts with exact table disclosures;
+micronutrients show unit-aware known totals and entry coverage; goal comparisons
+show the current-target scope and do not invent weight progress. Empty diary
+days, future days, known zero, and unknown micronutrients remain visibly
+distinct. Report URLs accept paired start_date/end_date values, group_by=day or
+week, page, and page_size up to 100. Invalid/duplicate/unknown parameters remain
+visible with a reset action and are not sent to the API. Bucket pages never
+change the full-range totals, micronutrients, or goal comparison panels.
+
+## Error responses
+
+All errors include the server-generated request ID also returned in the
+X-Request-ID header:
+
+~~~json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Please correct the highlighted fields.",
+    "details": [
+      {
+        "field": "consumption_date",
+        "message": "Consumption date cannot be after today."
+      }
+    ],
+    "request_id": "server-generated-uuid"
+  }
+}
+~~~
+
+Stable statuses include malformed JSON 400, missing meal/route 404, oversized
+JSON 413, unsupported mutation media type 415, validation 422, narrowly known
+database timeout/unavailability 503, and redacted unexpected failures 500.
+
+## Test isolation and quality checks
+
+Credential-free tests never connect to PostgreSQL:
+
+~~~bash
+npm --prefix server run typecheck
 npm --prefix server run lint
-npm --prefix client run lint
 npm --prefix server test
-npm --prefix client test
-```
+npm --prefix server run build
+~~~
 
-Server tests cover strict core/provider configuration, startup safety, request
-IDs, the JSON error contract, exact-origin CORS, Helmet, byte-accurate body
-limits, reusable Zod validation for body/query/params, internal-error redaction,
-and timezone-independent calendar arithmetic. Test-only routes are injected
-into the application factory and cannot appear in production startup. The
-client test renders the root route through React Router and checks the visible
-product introduction.
+Real database tests deliberately reuse the user-selected server/.env connection;
+no .env.test or second credential set is required:
+
+~~~bash
+npm --prefix server run test:db
+~~~
+
+The test loader parses that exact file so inherited shell values cannot redirect
+the target. Every run creates cryptographically unique, strictly validated
+nutritrack_test_* schemas and records ownership only after successful creation.
+Every test/migration/server connection sets and verifies an exact search_path
+containing only its owned schema, with no public or $user fallback.
+
+Fixtures, including live POST/PUT/DELETE probes, never enter the ordinary
+application diary. The harness compares application-table snapshots, stops
+owned servers, releases clients, drops only its recorded schemas, and closes
+pools even if cleanup reports an error.
+
+The full repository checks are:
+
+~~~bash
+npm --prefix server run typecheck
+npm --prefix server run lint
+npm --prefix server test
+npm --prefix server run build
+npm --prefix server run test:db
+npm --prefix client run typecheck
+npm --prefix client run lint
+npm --prefix client test
+npm --prefix client run build
+git diff --check
+~~~
 
 ## Production frontend
 
-Build static production assets and serve them locally:
+Build and preview the static frontend:
 
-```bash
+~~~bash
 npm --prefix client run build
 npm --prefix client run preview
-```
+~~~
 
-Preview uses <http://localhost:4173> and strict-port behavior. Generated
-`client/dist` files are intentionally ignored.
+Preview uses http://localhost:4173 with strict-port behavior. Build-time
+VITE_API_BASE_URL must identify the backend used by that preview. Development
+and production-preview workflows were both verified in an actual browser.
 
-## Implemented foundation
+## Implemented through Phase 9
 
-- Separate locked client and server packages using JavaScript ES modules/JSX.
-- Express application composition isolated from process listening.
-- Strict, startup-time core configuration with redacted failures and nonblocking
-  optional-provider state evaluation.
-- Server-owned UUID request IDs and a stable JSON error envelope.
-- Helmet defaults, exact-origin CORS, a numeric 100,000-byte JSON limit, and
-  explicit middleware ordering.
-- Reusable strict Zod validation for request body, query, and params, with
-  parsed data stored in `res.locals.validated`.
-- Pure calendar-date helpers for strict dates, comparison, addition, inclusive
-  counts, Monday-to-Sunday bounds, IANA-timezone today, and future-date checks.
-- Graceful HTTP listener shutdown for SIGINT and SIGTERM.
-- One semantic, responsive React Router root route without fake product data or
-  nonfunctional navigation.
-- Real lint, server HTTP/configuration tests, client DOM tests, and production
-  build.
-- Safe environment templates and repository ignore rules.
+- Strict startup configuration, request IDs, Helmet/CORS, safe errors, and
+  reusable request validation.
+- Calendar-date and IANA-timezone helpers.
+- Verified-CA shared PostgreSQL pool, DATE text parsing, bounded timeouts,
+  atomic migrations, and transaction helpers.
+- Persisted singleton profile/goals and an initially empty meals table.
+- Read-only profile API.
+- Complete meal create/read/list/full-update/delete APIs.
+- Read and atomic full-replacement goal APIs over the seeded singleton.
+- Strict nullable goal validation with positive calories/weight, nonnegative
+  macros, four-decimal precision, and explicit null/zero preservation.
+- Strict writable meal, UUID, date, provenance, precision, and query contracts.
+- Consumed-total nutrition with explicit null/zero response mapping.
+- Inclusive meal filters and deterministic backend pagination from one database
+  snapshot.
+- Meal-specific byte-accurate 64 KiB JSON mutation limit.
+- Goal replacements use the shared byte-accurate 100,000-byte JSON limit.
+- Strict nutrition-report query validation with paired ranges, a 366-day cap,
+  day/week grouping, and calendar-bucket pagination.
+- Full-range core totals, micronutrient known/unknown coverage, clipped empty
+  buckets, current-goal comparisons, and exact decimal aggregation.
+- One-client repeatable-read report snapshots across profile, goals, and meals.
+- Credential-free and owned-schema real-database regression suites.
+- API-backed current-week dashboard and dedicated nutrition reports route.
+- Recharts calorie and macro visualizations with keyboard-accessible exact-data
+  tables and responsive non-zero chart containers.
+- Unit-aware micronutrient coverage plus null/zero/no-entry distinctions.
+- Current-goal comparisons scoped to elapsed selected dates, including explicit
+  zero/unset targets and target-weight disclaimer.
+- Strict URL-backed report dates, grouping, page size, pagination, reset/week
+  navigation, stale-request protection, retry, refresh, and empty-page recovery.
+- Responsive React routes for home, history, meal creation/editing, goals, and
+  frontend not-found handling.
+- Central browser API client with normalized backend errors and request IDs.
+- React Hook Form plus Zod forms that preserve null, zero, precision, provenance,
+  and complete-replacement semantics.
+- URL-backed filtering/pagination with stale-request protection.
+- Explicit loading, empty, out-of-range, error, retry, success, confirmation,
+  rapid-submit, and ambiguous-failure behavior.
 
-## Documentation and next phase
+- Validated multipart nutrition-label and whole-plate extraction endpoint.
+- Strict provider and final-response schemas with explicit null/zero semantics.
+- Sharp worker-boundary decoding, format/pixel/frame checks, orientation,
+  transparency flattening, fit, JPEG normalization, deadlines, and cancellation.
+- Stateless Gemini Interactions structured output with one narrowly eligible
+  native xAI Grok Responses fallback and no hidden retries.
+- Bounded provider output, upload waiting, overall extraction time, per-IP rate,
+  and per-process concurrency with exact cleanup and shutdown cancellation.
+- Editable, server-owned draft metadata and deterministic missing fields with no
+  extraction persistence.
 
-Product, architecture, design, traceability, implementation-roadmap, and phase
-prompts are organized under `docs/`. Verification evidence is recorded in:
+## Documentation and scope
 
-- `docs/PHASE_1_VERIFICATION.md`
-- `docs/PHASE_2_VERIFICATION.md`
+Design, requirements, traceability, phase prompts, and verification evidence are
+under docs/. Phase 9 verification is in docs/PHASE_9_VERIFICATION.md. The
+post-Phase-7 TypeScript checkpoint remains in
+docs/TYPESCRIPT_MIGRATION_VERIFICATION.md.
 
-Phase 3 may add the Aiven PostgreSQL connection, centralized TLS configuration,
-migrations, and the first persistence layer. The current phase does not create
-a pool, read the CA certificate, connect to a database/provider, run migrations,
-or expose meal/profile/goal/report/upload endpoints. Authentication, chat, and
-PDF import remain outside the mandatory single-user scope.
+Phase 9 intentionally adds no image-entry frontend, automatic save, OCR service,
+authentication, chat, PDF import, health/debug endpoint, schema reset, goal
+history, weight history, or Phase 10 work.
