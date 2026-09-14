@@ -17,8 +17,6 @@ import {
   verifyDatabaseConnection,
 } from "../src/db/pool.js";
 import { createGeminiAdapter } from "../src/modules/nutrition/gemini.adapter.js";
-import { createGrokAdapter } from "../src/modules/nutrition/grok.adapter.js";
-import { ProviderFailure } from "../src/modules/nutrition/nutrition.failures.js";
 import { extractionResultSchema } from "../src/modules/nutrition/nutrition.schemas.js";
 import { createExtractionService } from "../src/modules/nutrition/nutrition.service.js";
 import type { ProviderAdapter } from "../src/modules/nutrition/provider-common.js";
@@ -123,7 +121,6 @@ async function labelImage(): Promise<Buffer> {
 async function main(): Promise<void> {
   const config = await loadDatabaseTestConfig();
   const geminiState = config.providers.gemini;
-  const grokState = config.providers.grok;
   assert.equal(geminiState.status, "configured", "Gemini live configuration is required.");
   if (geminiState.status !== "configured") {
     return;
@@ -152,15 +149,11 @@ async function main(): Promise<void> {
     const isolatedBefore = await snapshot(base, schema);
 
     const geminiCalls = { count: 0 };
-    const grokCalls = { count: 0 };
     const realGemini = counted(createGeminiAdapter(geminiState), geminiCalls);
-    const realGrok = grokState.status === "configured"
-      ? counted(createGrokAdapter(grokState), grokCalls) : undefined;
     const realService = createExtractionService({
       pool: isolated,
       providers: config.providers,
       gemini: realGemini,
-      ...(realGrok ? { grok: realGrok } : {}),
     });
     const app = createApp(config, {
       pool: isolated,
@@ -214,57 +207,14 @@ async function main(): Promise<void> {
     assert.equal(failedResponse.body.error.code, "IMAGE_INVALID");
     assert.deepEqual(await snapshot(base, schema), isolatedBefore);
 
-    let fallback: Record<string, unknown>;
-    if (realGrok) {
-      const fallbackPrimary: ProviderAdapter = {
-        name: "gemini",
-        async analyze() {
-          throw new ProviderFailure("unavailable", "Injected eligible live-check failure.");
-        },
-      };
-      const fallbackService = createExtractionService({
-        pool: isolated,
-        providers: config.providers,
-        gemini: fallbackPrimary,
-        grok: realGrok,
-      });
-      const fallbackApp = createApp(config, {
-        pool: isolated,
-        extractionService: fallbackService,
-        logger,
-      });
-      const fallbackStarted = performance.now();
-      const fallbackResponse = await request(fallbackApp)
-        .post("/api/v1/nutrition/extract")
-        .field("image_type", "food_plate")
-        .attach("image", plate, { filename: "permitted-plate.png", contentType: "image/png" });
-      const fallbackMs = Math.round(performance.now() - fallbackStarted);
-      assert.equal(fallbackResponse.status, 200, fallbackResponse.body?.error?.code);
-      const fallbackResult = extractionResultSchema.parse(fallbackResponse.body.data);
-      assert.equal(fallbackResult.provider, "grok");
-      assert.equal(fallbackResult.is_estimate, true);
-      assert.equal(grokCalls.count, 1);
-      fallback = {
-        status: fallbackResponse.status,
-        duration_ms: fallbackMs,
-        provider: fallbackResult.provider,
-      };
-    } else {
-      assert.equal(grokCalls.count, 0);
-      fallback = {
-        status: "blocked",
-        reason: "XAI_API_KEY and GROK_MODEL are not configured.",
-      };
-    }
     assert.equal(geminiCalls.count, 2);
     assert.deepEqual(await snapshot(base, schema), isolatedBefore);
     assert.deepEqual(await snapshot(base, "public"), publicBefore);
 
     console.log("PHASE9_LIVE_RESULT=" + JSON.stringify({
-      outbound_calls: { gemini: geminiCalls.count, grok: grokCalls.count },
+      outbound_calls: { gemini: geminiCalls.count },
       models: {
         gemini: geminiState.model,
-        grok: grokState.status === "configured" ? grokState.model : null,
       },
       label: {
         status: labelResponse.status,
@@ -281,7 +231,6 @@ async function main(): Promise<void> {
         duration_ms: plateMs,
         assumptions: plateResult.assumptions.length,
       },
-      fallback,
       no_persistence: true,
       ordinary_public_data_unchanged: true,
     }));

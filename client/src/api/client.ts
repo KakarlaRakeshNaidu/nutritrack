@@ -5,6 +5,7 @@ interface ApiErrorOptions {
   message?: string;
   details?: ErrorDetail[];
   requestId?: string | null;
+  retryAfter?: string | null;
   ambiguous?: boolean;
   status?: number | null;
 }
@@ -12,7 +13,17 @@ interface ApiErrorOptions {
 export interface ApiRequestOptions {
   method?: string;
   body?: unknown;
+  ambiguousOnNetworkError?: boolean;
   signal?: AbortSignal;
+}
+
+function isAbortError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      error.name === "AbortError",
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -26,6 +37,7 @@ export class ApiError extends Error {
   readonly details: ErrorDetail[];
   readonly requestId: string | null;
   readonly ambiguous: boolean;
+  readonly retryAfter: string | null;
   readonly status: number | null;
 
   constructor({
@@ -34,6 +46,7 @@ export class ApiError extends Error {
     details = [],
     requestId = null,
     ambiguous = false,
+    retryAfter = null,
     status = null,
   }: ApiErrorOptions = {}) {
     super(message);
@@ -43,6 +56,7 @@ export class ApiError extends Error {
     this.requestId = requestId;
     this.ambiguous = ambiguous;
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -55,6 +69,7 @@ function safeErrorEnvelope(
   payload: unknown,
   status: number,
   requestId: string | null,
+  retryAfter: string | null,
 ): ApiError {
   const source =
     isRecord(payload) && isRecord(payload.error)
@@ -79,19 +94,23 @@ function safeErrorEnvelope(
       typeof source.request_id === "string"
         ? source.request_id
         : (requestId ?? null),
+    retryAfter,
   });
 }
 
 export async function apiRequest<ResponseBody = unknown>(
   path: string,
-  { method = "GET", body, signal }: ApiRequestOptions = {},
+  { method = "GET", body, signal, ambiguousOnNetworkError }: ApiRequestOptions = {},
 ): Promise<ResponseBody> {
   const hasBody = body !== undefined;
+  const multipart = body instanceof FormData;
   const requestOptions: RequestInit = {
     method,
     signal,
-    headers: hasBody ? { "Content-Type": "application/json" } : undefined,
-    body: hasBody ? JSON.stringify(body) : undefined,
+    headers:
+      hasBody && !multipart ? { "Content-Type": "application/json" } : undefined,
+    // FormData must reach fetch unchanged so the browser creates the boundary.
+    body: hasBody ? (multipart ? body : JSON.stringify(body)) : undefined,
   };
 
   let response: Response;
@@ -100,15 +119,15 @@ export async function apiRequest<ResponseBody = unknown>(
     // failure could duplicate a create or repeat a confirmed user action.
     response = await fetch(apiBaseUrl() + path, requestOptions);
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (isAbortError(error)) {
       throw error;
     }
 
     throw new ApiError({
       code: "NETWORK_ERROR",
-      ambiguous: method !== "GET",
+      ambiguous: ambiguousOnNetworkError ?? method !== "GET",
       message:
-        method === "GET"
+        (ambiguousOnNetworkError ?? method !== "GET") === false
           ? "Could not reach the server. Check your connection and try again."
           : "Could not confirm the save. Check history before submitting again.",
     });
@@ -120,6 +139,7 @@ export async function apiRequest<ResponseBody = unknown>(
 
   const requestId = response.headers.get("x-request-id");
   const contentType = response.headers.get("content-type") ?? "";
+  const retryAfter = response.headers.get("retry-after");
   if (!contentType.toLowerCase().includes("application/json")) {
     throw new ApiError({
       status: response.status,
@@ -142,7 +162,7 @@ export async function apiRequest<ResponseBody = unknown>(
   }
 
   if (!response.ok) {
-    throw safeErrorEnvelope(payload, response.status, requestId);
+    throw safeErrorEnvelope(payload, response.status, requestId, retryAfter);
   }
 
   return payload as ResponseBody;

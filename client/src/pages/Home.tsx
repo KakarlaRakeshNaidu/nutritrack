@@ -41,6 +41,7 @@ export function Home() {
         </div>
         <div className="button-row hero-actions">
           <Link className="button primary" to="/meals/new">Log meal</Link>
+          <Link className="button secondary" to="/meals/from-image">Log from photo</Link>
           <Link className="button secondary" to="/meals">Meal history</Link>
           <Link className="button secondary" to="/goals">Goals</Link>
           <Link className="button secondary" to={reportLink}>Reports</Link>

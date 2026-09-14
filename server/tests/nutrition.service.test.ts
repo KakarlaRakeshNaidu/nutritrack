@@ -30,22 +30,17 @@ const output: ProviderOutput = {
   notes: ["estimated portion"],
 };
 
-function adapter(
-  name: "gemini" | "grok",
-  implementation: ProviderAdapter["analyze"],
-): ProviderAdapter {
-  return { name, analyze: implementation };
+function adapter(implementation: ProviderAdapter["analyze"]): ProviderAdapter {
+  return { name: "gemini", analyze: implementation };
 }
 
 function service({
   gemini,
-  grok,
-  providers = { gemini: configured, grok: configured },
+  providers = { gemini: configured },
   now,
 }: {
   gemini: ProviderAdapter;
-  grok: ProviderAdapter;
-  providers?: { gemini: typeof configured; grok: typeof configured | { status: "disabled" } };
+  providers?: { gemini: typeof configured | { status: "disabled" } };
   now?: () => number;
 }) {
   const queries: string[] = [];
@@ -65,7 +60,6 @@ function service({
       mime: "image/jpeg",
     }),
     gemini,
-    grok,
   });
   return { extraction, queries };
 }
@@ -77,108 +71,58 @@ const request = {
   signal: new AbortController().signal,
 };
 
-test("primary success never touches fallback and performs only the profile read", async () => {
-  let grokCalls = 0;
+test("Gemini success performs only the profile read", async () => {
   const { extraction, queries } = service({
-    gemini: adapter("gemini", async () => output),
-    grok: adapter("grok", async () => {
-      grokCalls += 1;
-      return output;
-    }),
+    gemini: adapter(async () => output),
   });
   const result = await extraction.extract(request);
   assert.equal(result.provider, "gemini");
-  assert.equal(grokCalls, 0);
   assert.deepEqual(queries, ["profile-read-singleton"]);
 });
 
 for (const kind of ["unavailable", "output_invalid"] as const) {
-  test(`eligible primary ${kind} uses one Grok fallback with identical bytes`, async () => {
-    let fallbackBytes: Buffer | undefined;
+  test(`Gemini ${kind} maps to its existing safe API error`, async () => {
     const { extraction } = service({
-      gemini: adapter("gemini", async () => {
-        throw new ProviderFailure(kind, "primary");
-      }),
-      grok: adapter("grok", async ({ image }) => {
-        fallbackBytes = image;
-        return output;
+      gemini: adapter(async () => {
+        throw new ProviderFailure(kind, "gemini");
       }),
     });
-    const result = await extraction.extract(request);
-    assert.equal(result.provider, "grok");
-    assert.equal(fallbackBytes?.equals(request.image), true);
+    const expected = kind === "output_invalid"
+      ? "AI_INVALID_OUTPUT"
+      : "AI_PROVIDERS_UNAVAILABLE";
+    await assert.rejects(
+      extraction.extract(request),
+      (error) => error instanceof AppError && error.code === expected,
+    );
   });
 }
 
-test("terminal primary failures never fall back", async () => {
+test("terminal Gemini failures retain their exact mappings", async () => {
   for (const [kind, expected] of [
     ["configuration", "AI_CONFIGURATION_ERROR"],
     ["content", "IMAGE_UNREADABLE"],
     ["application_bug", "INTERNAL_ERROR"],
   ] as const) {
-    let calls = 0;
     const { extraction } = service({
-      gemini: adapter("gemini", async () => {
+      gemini: adapter(async () => {
         throw new ProviderFailure(kind, "primary", {
           contentStatus: kind === "content" ? "unreadable" : undefined,
         });
-      }),
-      grok: adapter("grok", async () => {
-        calls += 1;
-        return output;
       }),
     });
     await assert.rejects(
       extraction.extract(request),
       (error) => error instanceof AppError && error.code === expected,
     );
-    assert.equal(calls, 0);
   }
 });
 
-test("fallback absence and final failure precedence map exactly", async () => {
-  const primaryInvalid = adapter("gemini", async () => {
-    throw new ProviderFailure("output_invalid", "bad");
-  });
-  const never = adapter("grok", async () => output);
-  const absent = service({
-    gemini: primaryInvalid,
-    grok: never,
-    providers: { gemini: configured, grok: { status: "disabled" } },
-  });
-  await assert.rejects(
-    absent.extraction.extract(request),
-    (error) => error instanceof AppError && error.code === "AI_FALLBACK_UNAVAILABLE",
-  );
-
-  for (const [fallbackKind, expected] of [
-    ["output_invalid", "AI_INVALID_OUTPUT"],
-    ["unavailable", "AI_PROVIDERS_UNAVAILABLE"],
-    ["configuration", "AI_CONFIGURATION_ERROR"],
-    ["application_bug", "INTERNAL_ERROR"],
-  ] as const) {
-    const current = service({
-      gemini: primaryInvalid,
-      grok: adapter("grok", async () => {
-        throw new ProviderFailure(fallbackKind, "fallback");
-      }),
-    });
-    await assert.rejects(
-      current.extraction.extract(request),
-      (error) => error instanceof AppError && error.code === expected,
-    );
-  }
-});
-
-test("remaining overall budget bounds fallback and prevents a late attempt", async () => {
-  const values = [0, 1, 55_001];
+test("overall budget prevents a late Gemini attempt", async () => {
+  const values = [0, 55_001];
   let calls = 0;
   const { extraction } = service({
     now: () => values.shift() ?? 55_001,
-    gemini: adapter("gemini", async () => {
-      throw new ProviderFailure("unavailable", "late");
-    }),
-    grok: adapter("grok", async () => {
+    gemini: adapter(async () => {
       calls += 1;
       return output;
     }),
@@ -190,20 +134,14 @@ test("remaining overall budget bounds fallback and prevents a late attempt", asy
   assert.equal(calls, 0);
 });
 
-test("caller cancellation is terminal and cannot leak a fallback", async () => {
-  let calls = 0;
+test("caller cancellation remains terminal", async () => {
   const current = service({
-    gemini: adapter("gemini", async () => {
+    gemini: adapter(async () => {
       throw new ProviderFailure("user_cancellation", "gone");
-    }),
-    grok: adapter("grok", async () => {
-      calls += 1;
-      return output;
     }),
   });
   await assert.rejects(
     current.extraction.extract(request),
     (error) => error instanceof ProviderFailure && error.kind === "user_cancellation",
   );
-  assert.equal(calls, 0);
 });

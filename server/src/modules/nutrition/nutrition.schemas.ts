@@ -133,7 +133,7 @@ const extractionDraftSchema = z.strictObject({
 });
 
 export const extractionResultSchema = z.strictObject({
-  provider: z.enum(["gemini", "grok"]),
+  provider: z.literal("gemini"),
   image_type: imageTypeSchema,
   is_estimate: z.boolean(),
   source_basis: z.string().max(200).nullable(),
@@ -154,7 +154,7 @@ export function buildExtractionResult({
   output,
   today,
 }: {
-  provider: "gemini" | "grok";
+  provider: "gemini";
   imageType: ImageType;
   output: ProviderOutput;
   today: string;

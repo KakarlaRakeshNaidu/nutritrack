@@ -10,7 +10,6 @@ import {
   type ExtractionResult,
   type ImageType,
 } from "./nutrition.schemas.js";
-import { createGrokAdapter } from "./grok.adapter.js";
 import type { ProviderAdapter } from "./provider-common.js";
 
 const PROVIDER_TIMEOUT_MS = 25_000;
@@ -27,7 +26,7 @@ export interface ExtractionService {
 
 interface ExtractionServiceDependencies {
   pool: DatabaseExecutor;
-  providers: Record<"gemini" | "grok", ProviderState>;
+  providers: Record<"gemini", ProviderState>;
   clock?: Clock;
   now?: () => number;
   normalize?: (
@@ -36,7 +35,6 @@ interface ExtractionServiceDependencies {
     signal: AbortSignal,
   ) => Promise<NormalizedImage>;
   gemini?: ProviderAdapter;
-  grok?: ProviderAdapter;
 }
 
 function clientErrorForContent(failure: ProviderFailure): AppError {
@@ -69,33 +67,21 @@ function configurationError(): AppError {
   });
 }
 
-function finalFailure(primary: ProviderFailure, fallback: ProviderFailure): AppError {
-  // Failure classes are deliberately narrow: configuration/content/programming
-  // failures are terminal; only availability and invalid output can reach here.
-  if (fallback.kind === "configuration") {
-    return configurationError();
-  }
-  if (fallback.kind === "content") {
-    return clientErrorForContent(fallback);
-  }
-  if (fallback.kind === "application_bug") {
-    return new AppError({
-      status: 500,
-      code: "INTERNAL_ERROR",
-      message: "An unexpected error occurred.",
-    });
-  }
-  if (primary.kind === "output_invalid" && fallback.kind === "output_invalid") {
+function providerFailure(failure: ProviderFailure): AppError {
+  // Gemini availability and output failures retain their existing public error
+  // classes; configuration, content, programming, and cancellation are handled
+  // at their narrower boundaries below.
+  if (failure.kind === "output_invalid") {
     return new AppError({
       status: 502,
       code: "AI_INVALID_OUTPUT",
-      message: "Image providers returned invalid output.",
+      message: "The image provider returned invalid output.",
     });
   }
   return new AppError({
     status: 503,
     code: "AI_PROVIDERS_UNAVAILABLE",
-    message: "Image providers are temporarily unavailable.",
+    message: "The image provider is temporarily unavailable.",
   });
 }
 
@@ -106,7 +92,6 @@ export function createExtractionService({
   now = Date.now,
   normalize = normalizeImage,
   gemini = createGeminiAdapter(providers.gemini),
-  grok = createGrokAdapter(providers.grok),
 }: ExtractionServiceDependencies): ExtractionService {
   const profileService = createProfileService({ pool, clock });
 
@@ -123,7 +108,6 @@ export function createExtractionService({
         });
       }
 
-      let primaryFailure: ProviderFailure;
       try {
         const output = await gemini.analyze({
           image: normalized.buffer,
@@ -158,47 +142,7 @@ export function createExtractionService({
         if (error.kind === "user_cancellation") {
           throw error;
         }
-        primaryFailure = error;
-      }
-
-      if (providers.grok.status !== "configured") {
-        throw new AppError({
-          status: 503,
-          code: "AI_FALLBACK_UNAVAILABLE",
-          message: "The fallback image provider is not configured.",
-        });
-      }
-      const remainingBeforeFallback = OVERALL_TIMEOUT_MS - (now() - startedAt);
-      if (remainingBeforeFallback <= 0) {
-        throw new AppError({
-          status: 503,
-          code: "AI_PROVIDERS_UNAVAILABLE",
-          message: "Image providers are temporarily unavailable.",
-        });
-      }
-
-      try {
-        const output = await grok.analyze({
-          image: normalized.buffer,
-          imageType,
-          signal,
-          timeoutMs: Math.min(PROVIDER_TIMEOUT_MS, remainingBeforeFallback),
-        });
-        const profile = await profileService.getProfile();
-        return buildExtractionResult({
-          provider: "grok",
-          imageType,
-          output,
-          today: profile.today,
-        });
-      } catch (error) {
-        if (!(error instanceof ProviderFailure)) {
-          throw error;
-        }
-        if (error.kind === "user_cancellation") {
-          throw error;
-        }
-        throw finalFailure(primaryFailure, error);
+        throw providerFailure(error);
       }
     },
   };

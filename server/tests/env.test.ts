@@ -145,33 +145,24 @@ test("DATABASE_URL requires PostgreSQL host/database and rejects TLS overrides",
   );
 });
 
-test("provider pairs are disabled, configured, or safely marked invalid", () => {
+test("Gemini configuration is disabled, configured, or safely marked invalid", () => {
   const disabled = loadEnv(VALID_CORE_ENV);
   assert.deepEqual(disabled.providers.gemini, { status: "disabled" });
-  assert.deepEqual(disabled.providers.grok, { status: "disabled" });
 
   const configured = loadEnv({
     ...VALID_CORE_ENV,
     GEMINI_API_KEY: "synthetic-gemini-key",
     GEMINI_MODEL: "synthetic-gemini-model",
-    XAI_API_KEY: "synthetic-xai-key",
-    GROK_MODEL: "synthetic-grok-model",
   });
   assert.equal(configured.providers.gemini.status, "configured");
-  assert.equal(configured.providers.grok.status, "configured");
 
   const partial = loadEnv({
     ...VALID_CORE_ENV,
     GEMINI_API_KEY: "",
-    GROK_MODEL: "synthetic-grok-model",
   });
   assert.deepEqual(partial.providers.gemini, {
     status: "configuration_error",
     fields: ["GEMINI_API_KEY", "GEMINI_MODEL"],
-  });
-  assert.deepEqual(partial.providers.grok, {
-    status: "configuration_error",
-    fields: ["XAI_API_KEY"],
   });
 });
 

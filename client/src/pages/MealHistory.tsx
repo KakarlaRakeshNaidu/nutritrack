@@ -158,9 +158,12 @@ export function MealHistory() {
           <h1>Meal history</h1>
           <p>Filter and page through entries saved by the backend.</p>
         </div>
-        <Link className="button primary" to="/meals/new">
-          Add a meal
-        </Link>
+        <div className="button-row">
+          <Link className="button secondary" to="/meals/from-image">
+            Log from photo
+          </Link>
+          <Link className="button primary" to="/meals/new">Add a meal</Link>
+        </div>
       </header>
 
       <MealFilters

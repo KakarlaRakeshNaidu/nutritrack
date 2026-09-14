@@ -19,6 +19,7 @@ import {
 } from "../utils/nutrition";
 import {
   mealFormSchema,
+  missingRequiredMealFields,
   mealPayload,
   mealToFormValues,
 } from "../validation/meals";
@@ -49,6 +50,10 @@ interface MealFormProps {
   submitLabel: string;
   onSubmit: (meal: MealPayload) => Promise<Meal | null | void>;
   onDirtyChange?: (dirty: boolean) => void;
+  disableSubmitUntilValid?: boolean;
+  lockProvenance?: boolean;
+  onMissingFieldsChange?: (fields: string[]) => void;
+  onSubmittingChange?: (submitting: boolean) => void;
 }
 
 function isApiField(value: string): value is FieldPath<MealFormInput> {
@@ -88,6 +93,10 @@ export function MealForm({
   submitLabel,
   onSubmit,
   onDirtyChange,
+  disableSubmitUntilValid = false,
+  lockProvenance = false,
+  onMissingFieldsChange,
+  onSubmittingChange,
 }: MealFormProps) {
   const schema = useMemo(() => mealFormSchema(today), [today]);
   const submittingRef = useRef(false);
@@ -97,11 +106,25 @@ export function MealForm({
     handleSubmit,
     reset,
     setError,
-    formState: { errors, isDirty, isSubmitting },
+    watch,
+    formState: { errors, isDirty, isSubmitting, isValid },
   } = useForm<MealFormInput, unknown, MealFormOutput>({
     defaultValues: initialValues,
     resolver: zodResolver(schema),
+    mode: disableSubmitUntilValid ? "onChange" : "onSubmit",
   });
+
+  const rawValues = watch();
+  const missingFields = missingRequiredMealFields(rawValues);
+  const missingKey = missingFields.join(",");
+
+  useEffect(() => {
+    onMissingFieldsChange?.(missingFields);
+  }, [missingKey, onMissingFieldsChange]);
+
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting);
+  }, [isSubmitting, onSubmittingChange]);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -212,6 +235,7 @@ export function MealForm({
           <label className="form-field">
             <span>Meal type</span>
             <select {...register("meal_type")}>
+              <option value="">Select meal type</option>
               {MEAL_TYPES.map((mealType) => (
                 <option key={mealType.value} value={mealType.value}>
                   {mealType.label}
@@ -248,6 +272,7 @@ export function MealForm({
           <label className="form-field">
             <span>Quantity unit</span>
             <select {...register("quantity_unit")}>
+              <option value="">Select quantity unit</option>
               {QUANTITY_UNITS.map((unit) => (
                 <option key={unit.value} value={unit.value}>
                   {unit.label}
@@ -297,26 +322,47 @@ export function MealForm({
           <h2 id="source-heading">Source and estimate</h2>
         </div>
         <div className="form-grid">
-          <label className="form-field">
-            <span>Nutrition source</span>
-            <select {...register("entry_source")}>
-              {ENTRY_SOURCES.map((source) => (
-                <option key={source.value} value={source.value}>
-                  {source.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              aria-invalid={Boolean(errors.is_estimate)}
-              aria-describedby={errors.is_estimate ? "estimate-error" : undefined}
-              {...register("is_estimate")}
-            />
-            <span>These nutrition values are an estimate</span>
-          </label>
-          <FieldError id="estimate-error" error={errors.is_estimate} />
+          {lockProvenance ? (
+            <div className="provenance-summary">
+              <strong>
+                {rawValues.entry_source === "food_plate"
+                  ? "Plate photo"
+                  : "Nutrition label photo"}
+              </strong>
+              <span>
+                {rawValues.is_estimate
+                  ? "Saved as an estimate."
+                  : "Saved as label-derived nutrition."}
+              </span>
+              <input type="hidden" {...register("entry_source")} />
+              <input type="hidden" {...register("is_estimate")} />
+            </div>
+          ) : (
+            <>
+              <label className="form-field">
+                <span>Nutrition source</span>
+                <select {...register("entry_source")}>
+                  {ENTRY_SOURCES.map((source) => (
+                    <option key={source.value} value={source.value}>
+                      {source.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  aria-invalid={Boolean(errors.is_estimate)}
+                  aria-describedby={
+                    errors.is_estimate ? "estimate-error" : undefined
+                  }
+                  {...register("is_estimate")}
+                />
+                <span>These nutrition values are an estimate</span>
+              </label>
+              <FieldError id="estimate-error" error={errors.is_estimate} />
+            </>
+          )}
         </div>
       </section>
 
@@ -324,10 +370,20 @@ export function MealForm({
         <button
           className="button primary"
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || (disableSubmitUntilValid && !isValid)}
         >
           {isSubmitting ? "Saving..." : submitLabel}
         </button>
+        {disableSubmitUntilValid && !isValid && (
+          <p className="field-help" role="status">
+            Complete the required meal fields before saving.
+            {missingFields.length > 0
+              ? " Still needed: " +
+                missingFields.join(", ").replaceAll("_", " ") +
+                "."
+              : ""}
+          </p>
+        )}
       </div>
     </form>
   );

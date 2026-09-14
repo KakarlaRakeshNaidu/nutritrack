@@ -16,6 +16,8 @@ export interface PersistedGoals extends Goals {
 }
 
 export type MealType = "breakfast" | "lunch" | "dinner" | "snacks";
+export type ImageType = "nutrition_label" | "food_plate";
+export type ExtractionProvider = "gemini";
 export type QuantityUnit = "g" | "ml" | "serving" | "piece";
 export type EntrySource = "manual" | "nutrition_label" | "food_plate";
 
@@ -48,6 +50,31 @@ export interface Meal extends MealPayload {
   created_at: string;
   updated_at: string;
 }
+export interface ExtractionDraft {
+  food_name: string | null;
+  meal_type: MealType | null;
+  consumption_date: string;
+  consumed_quantity: number | null;
+  quantity_unit: QuantityUnit | null;
+  calories_kcal: number | null;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  micronutrients: Micronutrients;
+  entry_source: EntrySource;
+  is_estimate: boolean;
+}
+
+export interface ExtractionResult {
+  provider: ExtractionProvider;
+  image_type: ImageType;
+  is_estimate: boolean;
+  source_basis: string | null;
+  assumptions: string[];
+  draft: ExtractionDraft;
+  missing_fields: string[];
+}
+
 
 export interface MealListParameters {
   start_date?: string;

@@ -1,4 +1,4 @@
-import type { Meal, MealPayload } from "../types";
+import type { ExtractionDraft, Meal, MealPayload } from "../types";
 import { z } from "zod";
 
 import { isValidDateOnly } from "../utils/dates";
@@ -12,6 +12,13 @@ import { numericInput } from "./numbers";
 const mealTypeValues = MEAL_TYPES.map(({ value }) => value);
 const quantityUnitValues = QUANTITY_UNITS.map(({ value }) => value);
 const entrySourceValues = ENTRY_SOURCES.map(({ value }) => value);
+const mealTypeInput = z
+  .union([z.enum(mealTypeValues), z.literal("")])
+  .pipe(z.enum(mealTypeValues, { error: "Meal type is required." }));
+const quantityUnitInput = z
+  .union([z.enum(quantityUnitValues), z.literal("")])
+  .pipe(z.enum(quantityUnitValues, { error: "Quantity unit is required." }));
+
 
 export function mealFormSchema(today: string) {
   return z
@@ -21,7 +28,7 @@ export function mealFormSchema(today: string) {
         .trim()
         .min(1, "Food name is required.")
         .max(200, "Food name must be 200 characters or fewer."),
-      meal_type: z.enum(mealTypeValues),
+      meal_type: mealTypeInput,
       consumption_date: z
         .string()
         .refine(isValidDateOnly, "Enter a real date in YYYY-MM-DD format.")
@@ -33,7 +40,7 @@ export function mealFormSchema(today: string) {
         label: "Consumed quantity",
         positive: true,
       }),
-      quantity_unit: z.enum(quantityUnitValues),
+      quantity_unit: quantityUnitInput,
       calories_kcal: numericInput({ label: "Calories" }),
       protein_g: numericInput({ label: "Protein" }),
       carbs_g: numericInput({ label: "Carbohydrates" }),
@@ -63,6 +70,27 @@ export type MealFormSchema = ReturnType<typeof mealFormSchema>;
 export type MealFormInput = z.input<MealFormSchema>;
 export type MealFormOutput = z.output<MealFormSchema>;
 
+export const REQUIRED_MEAL_FIELDS = [
+  "food_name",
+  "meal_type",
+  "consumption_date",
+  "consumed_quantity",
+  "quantity_unit",
+  "calories_kcal",
+  "protein_g",
+  "carbs_g",
+  "fat_g",
+] as const;
+
+export function missingRequiredMealFields(
+  values: Partial<MealFormInput>,
+): string[] {
+  return REQUIRED_MEAL_FIELDS.filter((field) => {
+    const value = values[field];
+    return value === "" || value === null || value === undefined;
+  });
+}
+
 
 export function emptyMealForm(today = ""): MealFormInput {
   return {
@@ -91,6 +119,36 @@ export function emptyMealForm(today = ""): MealFormInput {
 function formNumber(value: number | null): string {
   return value === null ? "" : String(value);
 }
+function draftNumber(value: number | null): string {
+  return value === null ? "" : String(value);
+}
+
+export function extractionToFormValues(draft: ExtractionDraft): MealFormInput {
+  // A new extraction replaces the whole form rather than mixing totals from
+  // different images. Null stays blank, while known zero becomes "0".
+  return {
+    food_name: draft.food_name ?? "",
+    meal_type: draft.meal_type ?? "",
+    consumption_date: draft.consumption_date,
+    consumed_quantity: draftNumber(draft.consumed_quantity),
+    quantity_unit: draft.quantity_unit ?? "",
+    calories_kcal: draftNumber(draft.calories_kcal),
+    protein_g: draftNumber(draft.protein_g),
+    carbs_g: draftNumber(draft.carbs_g),
+    fat_g: draftNumber(draft.fat_g),
+    micronutrients: {
+      sodium_mg: draftNumber(draft.micronutrients.sodium_mg),
+      calcium_mg: draftNumber(draft.micronutrients.calcium_mg),
+      iron_mg: draftNumber(draft.micronutrients.iron_mg),
+      potassium_mg: draftNumber(draft.micronutrients.potassium_mg),
+      vitamin_c_mg: draftNumber(draft.micronutrients.vitamin_c_mg),
+      vitamin_d_mcg: draftNumber(draft.micronutrients.vitamin_d_mcg),
+    },
+    entry_source: draft.entry_source,
+    is_estimate: draft.is_estimate,
+  };
+}
+
 
 export function mealToFormValues(meal: Meal): MealFormInput {
   return {

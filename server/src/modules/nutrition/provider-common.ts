@@ -8,7 +8,7 @@ import {
 export const MAX_PROVIDER_TEXT_BYTES = 65_536;
 
 export interface ProviderAdapter {
-  readonly name: "gemini" | "grok";
+  readonly name: "gemini";
   analyze(input: {
     image: Buffer;
     imageType: ImageType;

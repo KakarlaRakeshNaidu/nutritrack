@@ -2,9 +2,44 @@
 
 Date: 2026-09-14
 
-Status: PHASE 9 FAILED because the required real xAI Grok fallback check is
-blocked by configuration. The implementation, credential-free gates, compiled
-runtime smoke, two Gemini live checks, and no-persistence checks pass.
+Status: PHASE 9 PASSED under the user-approved Gemini-only scope.
+
+## Gemini-only closeout
+
+The user approved Gemini as the sole image-analysis provider and removed the
+optional Groq/xAI fallback from Phase 9 scope. The fallback adapter, execution
+branch, configuration requirements, provider/result variants, live-harness
+branch, and fallback-only tests were removed. The real server/.env and its
+credentials were not read, printed, or modified.
+
+The following successful evidence is carried forward without repetition:
+
+- the real Gemini label check returned the exact asserted quantity and core
+  nutrition values;
+- the real Gemini plate check returned a validated editable estimate with
+  server-owned source and estimate metadata;
+- extraction made no database changes and all owned schemas, ports, processes,
+  and resources were cleaned up;
+- the credential-free full server suite, compiled runtime smoke, build, Sharp
+  runtime check, database verification, and Phase 8 client/browser evidence
+  recorded below passed.
+
+Fresh closeout checks in Ubuntu-24.04-Verify:
+
+| Check | Result |
+| --- | --- |
+| npm run typecheck | Passed with strict TypeScript |
+| npm run lint | Passed |
+| focused configuration/provider/orchestration/HTTP tests | Passed; 31/31 |
+
+No live provider call, full suite, migration, build, client test, or browser
+workflow was repeated. With the fallback dependency removed and no other known
+blocker remaining, Phase 9 is complete under the revised scope.
+
+## Historical verification under the superseded fallback scope
+
+The remaining sections preserve the earlier verification record. Its failed
+fallback gate is historical evidence and is not a current requirement.
 
 ## Scope and requirements covered
 
@@ -242,7 +277,7 @@ evidence.
 No API schema, database migration, frontend, public force-provider flag, provider
 model substitution, credential file, commit, or deployment was added.
 
-## Repository state and remaining gate
+## Historical repository state and former gate
 
 - Branch: main
 - HEAD: 285a822
@@ -253,10 +288,17 @@ model substitution, credential file, commit, or deployment was added.
 - Commit created: no
 - Push performed: no
 
-Remaining completion gate: configure a real xAI XAI_API_KEY plus GROK_MODEL pair
+Historical completion gate (superseded): configure a real xAI XAI_API_KEY plus GROK_MODEL pair
 in server/.env, then rerun the bounded live harness once. Do not rename or reuse
 the existing GROQ key. If that single live fallback returns a valid result and
 the existing digest/cleanup assertions pass, update this report with the model,
 one-call timing, and PHASE 9 PASSED.
 
-PHASE 9 FAILED
+PHASE 9 FAILED (historical fallback scope; superseded)
+
+## Current final status
+
+Gemini is the sole configured extraction provider. The fallback dependency and
+its completion gate are removed, and the targeted closeout checks pass.
+
+PHASE 9 PASSED

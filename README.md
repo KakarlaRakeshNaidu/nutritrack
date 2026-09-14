@@ -1,13 +1,13 @@
 # Personal Calorie Tracker
 
 Personal Calorie Tracker is a staged full-stack application for recording meals
-and understanding personal nutrition. Phase 9 adds a validated backend image
-extraction API to the persisted diary, profile, goals, dashboard, and reporting
-workflows completed in earlier phases. A nutrition-label or plate image can now
-produce a strictly validated, editable meal draft through Gemini with a narrowly
-eligible xAI Grok fallback. Extraction never saves a meal; the user must review
-the draft and submit the ordinary meal POST separately. The Phase 9 scope is
-backend-only and adds no upload UI.
+and understanding personal nutrition. Phase 10 adds an image-assisted web
+workflow to the persisted diary, profile, goals, dashboard, and reporting
+features completed in earlier phases. A nutrition-label or plate image can now
+produce a strictly validated, editable meal draft through Gemini, the sole
+image-analysis provider. Extraction never saves a meal; the user must review
+and complete the draft before an explicit Save meal action submits the ordinary
+meal POST.
 
 All completed application source, tests, and executable support code are written
 in strict TypeScript. The backend production build emits JavaScript to
@@ -53,12 +53,10 @@ rejectUnauthorized enabled, allows at most five connections, and uses bounded
 connection, idle, and statement timeouts. Startup proves connectivity before
 listening. Logs do not print database URLs, certificate paths, SQL, or secrets.
 
-Gemini uses the optional GEMINI_API_KEY and GEMINI_MODEL pair. Grok uses the
-optional XAI_API_KEY and GROK_MODEL pair. A pair is configured only when both
-members are present and nonblank. Missing AI configuration does not block
+Gemini uses the optional GEMINI_API_KEY and GEMINI_MODEL pair. Both values must
+be present and nonblank. Missing AI configuration does not block
 startup or any manual/profile/goal/report API, but extraction returns a safe
-configuration error when the required provider is unavailable. GROQ_API_KEY and
-GROQ_MODEL refer to a different service and are not xAI Grok configuration. The
+configuration error when Gemini is unavailable. The
 browser receives no provider credentials. Never put backend credentials into
 VITE-prefixed values or tracked example files.
 
@@ -192,15 +190,14 @@ Provider store=false makes these requests stateless at the API level but is not
 a blanket promise about provider retention policies.
 
 Gemini is attempted once through the Interactions API with structured JSON and
-automatic retries disabled. Exactly one Grok Responses API attempt is allowed
-only after Gemini availability failures (deadline, recognized transport failure,
-429, or 5xx) or invalid output. Missing/rejected configuration, explicit content
-refusal, valid unreadable/not-food status, caller cancellation, and application
-defects are terminal and never trigger fallback. Grok also uses structured JSON,
-store=false, no tools, and no automatic application retry.
+automatic retries disabled. Gemini is the sole provider; no secondary provider
+is configured or attempted. Missing/rejected configuration, explicit content
+refusal, valid unreadable/not-food status, caller cancellation, application
+defects, availability failures, and invalid output map directly to their bounded
+API errors.
 
-Each provider attempt is capped at 25 seconds. The complete post-upload flow,
-including image work and any fallback, is capped at 55 seconds; image processing
+The Gemini attempt is capped at 25 seconds. The complete post-upload flow,
+including image work, is capped at 55 seconds; image processing
 has its own five-second bound. Multipart upload waiting is capped at 15 seconds.
 Caller disconnect and server shutdown propagate cancellation to worker/provider
 requests before resources are released.
@@ -209,6 +206,29 @@ Admission is local to each backend process: at most two extraction requests run
 concurrently, with no queue, and each IP may make 10 extraction requests per
 10-minute window. Rejections return 429 with Retry-After. These limits do not
 apply to the manual APIs and are not distributed across multiple processes.
+
+## Image-assisted web workflow
+
+Open /meals/from-image directly or choose Log from photo from the dashboard or
+meal history. Select Nutrition label or Plate of food, then choose one JPEG,
+PNG, or WebP image. The file must be nonempty and no larger than exactly
+10,000,000 bytes; selecting it creates only a local preview and does not upload
+or save anything.
+
+Analyze image performs one explicit Gemini-backed extraction request. A label
+draft preserves its extracted reference quantity and totals. A plate produces
+one editable whole-meal estimate. Review the food name, date, meal type, quantity,
+core nutrition, all six micronutrients, source basis, assumptions, and locked
+source/estimate context in the shared meal form. Unknown values stay blank,
+while a known numeric zero stays zero. Changing consumed quantity never rescales
+nutrient totals, so totals must be reviewed and edited directly.
+
+Only Save meal calls POST /api/v1/meals, and it remains disabled until the normal
+meal contract is valid. Analysis failures retain usable selection/draft context
+and always leave Enter manually available. Cancellation, timeouts, stale
+responses, dirty-draft replacement confirmation, save errors, and ambiguous
+network failures are handled without automatic retries or duplicate writes.
+Gemini is the sole image provider; provider credentials remain server-only.
 
 Phase 9 extraction-specific errors include:
 
@@ -222,7 +242,7 @@ Phase 9 extraction-specific errors include:
 | 429 | AI_RATE_LIMITED, AI_BUSY |
 | 500 | INTERNAL_ERROR |
 | 502 | AI_INVALID_OUTPUT |
-| 503 | AI_CONFIGURATION_ERROR, AI_FALLBACK_UNAVAILABLE, AI_PROVIDERS_UNAVAILABLE |
+| 503 | AI_CONFIGURATION_ERROR, AI_PROVIDERS_UNAVAILABLE |
 
 All use the shared redacted error envelope and server request ID. Upstream bodies,
 raw provider output, credentials, SQL, and image buffers are never logged.
@@ -238,10 +258,10 @@ node --import tsx support/phase9-live-verification.ts
 ~~~
 
 The harness creates a unique nutritrack_p9_* schema, verifies the synthetic
-label and permitted plate through the real route, optionally verifies one real
-xAI fallback when XAI_API_KEY/GROK_MODEL are configured, compares table digests,
-drops only its owned schema, and closes its pool. It prints model names, bounded
-call counts, timings, and observed synthetic values, never keys or raw payloads.
+label and permitted plate through the real Gemini route, compares table digests,
+drops only its owned schema, and closes its pool. It prints the model name,
+bounded call count, timings, and observed synthetic values, never keys or raw
+payloads.
 
 
 ## Meal API
@@ -519,6 +539,7 @@ The client routes are:
 - / for the API-backed current-week dashboard.
 - /meals for URL-backed filters and pagination.
 - /meals/new for complete manual meal creation.
+- /meals/from-image for explicit image analysis and editable meal prefill.
 - /meals/:id/edit for complete meal replacement.
 - /goals for current goal retrieval and full replacement.
 - /reports for URL-backed date/grouping controls and chart-bucket pagination.
@@ -630,7 +651,7 @@ Preview uses http://localhost:4173 with strict-port behavior. Build-time
 VITE_API_BASE_URL must identify the backend used by that preview. Development
 and production-preview workflows were both verified in an actual browser.
 
-## Implemented through Phase 9
+## Implemented through Phase 10
 
 - Strict startup configuration, request IDs, Helmet/CORS, safe errors, and
   reusable request validation.
@@ -676,20 +697,29 @@ and production-preview workflows were both verified in an actual browser.
 - Strict provider and final-response schemas with explicit null/zero semantics.
 - Sharp worker-boundary decoding, format/pixel/frame checks, orientation,
   transparency flattening, fit, JPEG normalization, deadlines, and cancellation.
-- Stateless Gemini Interactions structured output with one narrowly eligible
-  native xAI Grok Responses fallback and no hidden retries.
+- Stateless Gemini Interactions structured output as the sole provider, with
+  no hidden retries.
 - Bounded provider output, upload waiting, overall extraction time, per-IP rate,
   and per-process concurrency with exact cleanup and shutdown cancellation.
 - Editable, server-owned draft metadata and deterministic missing fields with no
   extraction persistence.
+- Explicit nutrition-label and plate image selection with validated local
+  preview, exact client size/type checks, and object-URL cleanup.
+- Gemini-only multipart extraction through the central client with a 60-second
+  aborting deadline, explicit retry, cancellation, and stale-response protection.
+- Shared MealForm editable prefill with null/zero preservation, live missing-field
+  guidance, locked provenance, dirty-draft confirmation, and no auto-rescaling.
+- Explicit ordinary meal persistence only after review, with failed-save draft
+  retention, duplicate-submit protection, history navigation, and report updates.
 
 ## Documentation and scope
 
 Design, requirements, traceability, phase prompts, and verification evidence are
-under docs/. Phase 9 verification is in docs/PHASE_9_VERIFICATION.md. The
+under docs/. Phase 9 verification is in docs/PHASE_9_VERIFICATION.md and Phase
+10 verification is in docs/PHASE_10_VERIFICATION.md. The
 post-Phase-7 TypeScript checkpoint remains in
 docs/TYPESCRIPT_MIGRATION_VERIFICATION.md.
 
-Phase 9 intentionally adds no image-entry frontend, automatic save, OCR service,
-authentication, chat, PDF import, health/debug endpoint, schema reset, goal
-history, weight history, or Phase 10 work.
+Phase 10 intentionally adds no automatic save, provider adapter, fallback, OCR
+service, image persistence, authentication, chat, PDF import, health/debug
+endpoint, schema reset, goal history, weight history, or Phase 11 work.

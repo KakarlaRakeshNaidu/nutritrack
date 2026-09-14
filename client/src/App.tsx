@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, Route, Routes } from "react-router-dom";
 import { Goals } from "./pages/Goals";
 import { Home } from "./pages/Home";
 import { MealEditor } from "./pages/MealEditor";
+import { MealFromImage } from "./pages/MealFromImage";
 import { MealHistory } from "./pages/MealHistory";
 import { NotFound } from "./pages/NotFound";
 import { Reports } from "./pages/Reports";
@@ -46,6 +47,7 @@ export function App() {
         <Route index element={<Home />} />
         <Route path="meals" element={<MealHistory />} />
         <Route path="meals/new" element={<MealEditor />} />
+        <Route path="meals/from-image" element={<MealFromImage />} />
         <Route path="meals/:id/edit" element={<MealEditor />} />
         <Route path="goals" element={<Goals />} />
         <Route path="reports" element={<Reports />} />

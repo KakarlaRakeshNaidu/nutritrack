@@ -84,7 +84,7 @@ test("route rejects wrong media, query parameters, missing and invalid fields", 
   assert.equal(wrong.status, 415);
 
   const queried = await request(app)
-    .post("/api/v1/nutrition/extract?force=grok")
+    .post("/api/v1/nutrition/extract?force=unsupported")
     .field("image_type", "nutrition_label")
     .attach("image", Buffer.from("x"), { filename: "x.jpg", contentType: "image/jpeg" });
   assert.equal(queried.status, 422);
@@ -341,7 +341,7 @@ test("stalled upload receives a bounded 408, releases its slot, and permits reus
   }
 });
 
-test("caller disconnect during provider work aborts the owned signal without fallback", async () => {
+test("caller disconnect during provider work aborts the owned signal promptly", async () => {
   const runtime = new ExtractionRuntime();
   let calls = 0;
   let active = 0;

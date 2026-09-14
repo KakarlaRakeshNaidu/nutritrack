@@ -16,7 +16,7 @@ export interface AppConfig {
   TRUST_PROXY_HOPS: number;
   DATABASE_URL: string;
   PG_CA_CERT_PATH: string;
-  providers: Record<"gemini" | "grok", ProviderState>;
+  providers: Record<"gemini", ProviderState>;
 }
 
 function integerEnvironmentValue({
@@ -191,7 +191,6 @@ export function loadEnv(source: EnvironmentSource = process.env): AppConfig {
     ...result.data,
     providers: {
       gemini: evaluateProviderPair(source, "GEMINI_API_KEY", "GEMINI_MODEL"),
-      grok: evaluateProviderPair(source, "XAI_API_KEY", "GROK_MODEL"),
     },
   };
 }

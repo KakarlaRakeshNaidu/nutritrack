@@ -3,18 +3,33 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { discoverMigrations, quoteInternalIdentifier, runMigrations } from "../src/db/migration-runner.js";
 import { createDatabasePool } from "../src/db/pool.js";
+import { ProviderFailure } from "../src/modules/nutrition/nutrition.failures.js";
+import { createExtractionService } from "../src/modules/nutrition/nutrition.service.js";
+import type { ProviderAdapter } from "../src/modules/nutrition/provider-common.js";
 import { startServer as startSourceServer } from "../src/server.js";
 import type { DatabasePool } from "../src/types.js";
 import { recordingLogger } from "../support/testing.js";
 import { loadDatabaseTestConfig } from "../tests-db/database-test-config.js";
 
 let startServer = startSourceServer;
+let createRuntimeExtractionService = createExtractionService;
+let RuntimeProviderFailure = ProviderFailure;
 if (process.env.PHASE8_COMPILED === "true") {
   const compiledServerPath = "../dist/server.js";
   const compiledServer = (await import(compiledServerPath)) as {
     startServer: typeof startSourceServer;
   };
+  const compiledServicePath = "../dist/modules/nutrition/nutrition.service.js";
+  const compiledService = (await import(compiledServicePath)) as {
+    createExtractionService: typeof createExtractionService;
+  };
+  const compiledFailurePath = "../dist/modules/nutrition/nutrition.failures.js";
+  const compiledFailure = (await import(compiledFailurePath)) as {
+    ProviderFailure: typeof ProviderFailure;
+  };
   startServer = compiledServer.startServer;
+  createRuntimeExtractionService = compiledService.createExtractionService;
+  RuntimeProviderFailure = compiledFailure.ProviderFailure;
 }
 
 const schema =
@@ -31,6 +46,7 @@ const tables = [
 ];
 const clientOrigin = process.env.PHASE6_CLIENT_ORIGIN ?? "http://localhost:5173";
 const serverPort = process.env.PHASE6_SERVER_PORT ?? "3420";
+const usePhase10Provider = process.env.PHASE10_SIMULATED_PROVIDER === "true";
 const config = await loadDatabaseTestConfig();
 const basePool = await createDatabasePool(config, {
   logger: recordingLogger(),
@@ -136,6 +152,51 @@ function isolatedPool(): DatabasePool {
 
 const pool = isolatedPool();
 
+function phase10Provider(): ProviderAdapter {
+  let callCount = 0;
+  return {
+    name: "gemini",
+    async analyze({ imageType, signal }) {
+      callCount += 1;
+      if (callCount === 3) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 5_000);
+          const cancel = () => {
+            clearTimeout(timer);
+            reject(new RuntimeProviderFailure("user_cancellation", "Simulated request canceled."));
+          };
+          if (signal.aborted) cancel();
+          else signal.addEventListener("abort", cancel, { once: true });
+        });
+      }
+      if (callCount === 4) {
+        throw new RuntimeProviderFailure("unavailable", "Simulated provider outage.");
+      }
+      const plate = imageType === "food_plate";
+      return {
+        status: "ok",
+        food_name: plate ? "Simulated plate meal" : "Simulated label meal",
+        quantity: 1,
+        quantity_unit: plate ? "piece" : "serving",
+        calories_kcal: plate ? 500 : 250,
+        protein_g: plate ? 24 : 12,
+        carbs_g: plate ? 60 : 30,
+        fat_g: plate ? 16 : 8,
+        micronutrients: {
+          sodium_mg: plate ? 800 : 400,
+          calcium_mg: null,
+          iron_mg: 0,
+          potassium_mg: null,
+          vitamin_c_mg: null,
+          vitamin_d_mcg: null,
+        },
+        source_basis: plate ? "One visible plate" : "One labeled serving",
+        notes: plate ? ["Portions are simulated estimates."] : [],
+      };
+    },
+  };
+}
+
 try {
   await basePool.query("CREATE SCHEMA " + quotedSchema);
   schemaOwned = true;
@@ -166,10 +227,19 @@ try {
       createPool: async () => pool,
       clock: () => new Date("2026-09-12T10:00:00Z"),
       logger: console,
+      extractionService: usePhase10Provider
+        ? createRuntimeExtractionService({
+            pool,
+            providers: config.providers,
+            clock: () => new Date("2026-09-12T10:00:00Z"),
+            gemini: phase10Provider(),
+          })
+        : undefined,
     },
   );
   console.log(
-    "Phase 6 browser backend ready on port " +
+    (usePhase10Provider ? "Phase 10" : "Phase 6") +
+      " browser backend ready on port " +
       serverPort +
       " for origin " +
       clientOrigin +
