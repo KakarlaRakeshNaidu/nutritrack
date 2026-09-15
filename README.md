@@ -1,4 +1,4 @@
-# Personal Calorie Tracker
+# NutriTrack-Personal Calorie Tracker
 
 Personal Calorie Tracker is a full-stack application for recording meals and
 understanding personal nutrition. The persisted diary, current goals, dashboard,
