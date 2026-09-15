@@ -63,3 +63,4 @@ interview-prep/
 # Ignored output folders
 docs/
 graphify-out/
+.agents/
