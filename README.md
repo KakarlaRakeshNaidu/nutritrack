@@ -1,6 +1,10 @@
+<<<<<<< HEAD
 # NutriTrack-Personal Calorie Tracker
+=======
+# NutriTrack
+>>>>>>> 482385f (updated readme)
 
-Personal Calorie Tracker is a full-stack application for recording meals and
+NutriTrack is a full-stack application for recording meals and
 understanding personal nutrition. The persisted diary, current goals, dashboard,
 and reports support manual entry plus two optional Gemini-assisted workflows:
 nutrition-label/plate image extraction and nutrition estimation from explicitly
@@ -56,9 +60,8 @@ Gemini uses the optional GEMINI_API_KEY and GEMINI_MODEL pair. Both values must
 be present and nonblank. Missing AI configuration does not block startup or any
 manual/profile/goal/report API, but image extraction and meal-basics estimation
 return a safe configuration error when Gemini is unavailable. Gemini is the
-sole provider; no Groq/xAI fallback configuration is used. The browser receives
-no provider credentials. Never put backend credentials into VITE-prefixed
-values or tracked example files.
+sole AI provider. The browser receives no provider credentials. Never put
+backend credentials into VITE-prefixed values or tracked example files.
 
 ## Database setup
 
@@ -108,7 +111,8 @@ single diary.
 Set VITE_API_BASE_URL only when the browser should use a non-default API:
 
 ~~~bash
-VITE_API_BASE_URL=http://localhost:3000/api/v1 npm --prefix client run dev
+VITE_API_BASE_URL=http://localhost:3000/api/v1 
+npm --prefix client run dev
 ~~~
 
 This value is a public browser URL, not a place for secrets.
@@ -265,7 +269,7 @@ responses, dirty-draft replacement confirmation, save errors, and ambiguous
 network failures are handled without automatic retries or duplicate writes.
 Gemini is the sole image provider; provider credentials remain server-only.
 
-Phase 9 extraction-specific errors include:
+Image extraction errors include:
 
 | Status | Codes |
 | --- | --- |
@@ -282,7 +286,7 @@ Phase 9 extraction-specific errors include:
 All use the shared redacted error envelope and server request ID. Upstream bodies,
 raw provider output, credentials, SQL, and image buffers are never logged.
 
-The credential-free Phase 9 suite is part of the ordinary server test command.
+The credential-free AI suite is part of the ordinary server test command.
 The bounded live transport/no-persistence harness is deliberately separate
 because it consumes configured provider calls and touches a temporary owned
 database schema:
@@ -661,7 +665,7 @@ The test loader parses that exact file so inherited shell values cannot redirect
 the target. Every run creates cryptographically unique, strictly validated
 nutritrack_test_* schemas and records ownership only after successful creation.
 Every test/migration/server connection sets and verifies an exact search_path
-containing only its owned schema, with no public or $user fallback.
+containing only its owned schema and excluding public and `$user`.
 
 Fixtures, including live POST/PUT/DELETE probes, never enter the ordinary
 application diary. The harness compares application-table snapshots, stops
@@ -757,7 +761,8 @@ and production-preview workflows were both verified in an actual browser.
 - Explicit ordinary meal persistence only after review, with failed-save draft
   retention, duplicate-submit protection, history navigation, and report updates.
 - Strict meal-basics estimation request/provider/result schemas using one
-  Gemini text request with no image fabrication, tools, fallback, or retry.
+  Gemini text request with no image fabrication, external tools, or automatic
+  retry.
 - Explicit Estimate/Re-estimate and Cancel controls in the shared meal form,
   editable null/zero-preserving prefill, clarification/assumption display,
   stale-response and pending-edit protection, changed-basis review, and no
@@ -765,17 +770,12 @@ and production-preview workflows were both verified in an actual browser.
 
 ## Documentation and scope
 
-Design, requirements, traceability, phase prompts, and verification evidence are
-under docs/. Phase 9 verification is in docs/PHASE_9_VERIFICATION.md and Phase
-10 verification is in docs/PHASE_10_VERIFICATION.md. Meal-basics estimation,
-the integration/security review, and the final audit are recorded in
-docs/MEAL_BASICS_AI_ESTIMATION_VERIFICATION.md,
-docs/PHASE_11_VERIFICATION.md, and docs/PHASE_12_AUDIT.md. The post-Phase-7
-TypeScript checkpoint remains in docs/TYPESCRIPT_MIGRATION_VERIFICATION.md.
+Architecture, requirements, traceability, implementation records, and
+verification evidence are under `docs/`. Current completion evidence is in
+`docs/MEAL_BASICS_AI_ESTIMATION_VERIFICATION.md`,
+`docs/PHASE_11_VERIFICATION.md`, and `docs/PHASE_12_AUDIT.md`.
 
-The current approved provider scope is Gemini only. Historical planning and the
-preserved historical portion of Phase 9 verification mention Grok fallback;
-that requirement is superseded and no fallback executes in current code.
+Gemini is the only AI provider used by NutriTrack.
 
 The application intentionally includes no automatic AI save, OCR service,
 image persistence, authentication, multi-user ownership, chat, PDF import,
@@ -783,8 +783,3 @@ export/reminders, schema reset, goal history, or weight history. Chat,
 multi-user support, and PDF import are assignment bonuses and are not claimed.
 Current goals are not historical snapshots, and target weight is a configured
 goal only because no weight measurements are recorded.
-
-Previously exposed credential-shaped values were removed from tracked files.
-The user confirmed replacement of the affected PostgreSQL and Gemini
-credentials on 2026-09-15; the application then passed a verified-TLS database
-`SELECT 1` and one authenticated Gemini request without recording secret values.
