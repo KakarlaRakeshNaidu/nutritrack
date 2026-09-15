@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-# NutriTrack-Personal Calorie Tracker
-=======
 # NutriTrack
->>>>>>> 482385f (updated readme)
 
 NutriTrack is a full-stack application for recording meals and
 understanding personal nutrition. The persisted diary, current goals, dashboard,
@@ -31,25 +27,29 @@ in strict TypeScript. The backend production build emits JavaScript to
 
 The client and server are independent npm packages. From the repository root:
 
-~~~bash
+```bash
 nvm install
 nvm use
 npm --prefix server ci
 npm --prefix client ci
-~~~
+```
 
 ## Backend environment and TLS
 
 The backend loads server/.env through Node native environment-file support.
 Copy the safe template and replace placeholders:
 
-~~~bash
+```bash
 cp server/.env.example server/.env
-~~~
+```
 
 Configure PORT, NODE_ENV, CLIENT_ORIGIN, TRUST_PROXY_HOPS, DATABASE_URL, and
 PG_CA_CERT_PATH. DATABASE_URL must be a PostgreSQL URI without any ssl-prefixed
-query option. PG_CA_CERT_PATH must identify the trusted provider CA in WSL.
+query option. PG_CA_CERT_PATH must identify the trusted provider CA certificate
+file on disk (for example, a WSL path when developing on Windows).
+TRUST_PROXY_HOPS is the number of proxy hops Express trusts when resolving the
+client IP from X-Forwarded-For, including for per-IP AI rate limiting. Use 0 for
+direct access and 1 behind one reverse proxy or load balancer.
 
 The process owns one shared pg.Pool. It verifies the configured CA with
 rejectUnauthorized enabled, allows at most five connections, and uses bounded
@@ -68,10 +68,10 @@ backend credentials into VITE-prefixed values or tracked example files.
 Migrations are explicit operator actions, not application-startup behavior.
 Inspect the configured target, then run:
 
-~~~bash
+```bash
 npm --prefix server run db:migrate
 npm --prefix server run db:migrate
-~~~
+```
 
 The first run applies pending migration files atomically under an advisory lock.
 The second must report that the schema is current. Migration 001 creates the
@@ -79,25 +79,26 @@ singleton profile and goals plus the constrained meals table. It seeds no meals.
 Do not edit an applied migration or reset a database to conceal conflicts.
 
 The profile defaults to Personal user and Asia/Kolkata. An authorized operator
-may update the singleton name/timezone directly before use. The persisted IANA
+may update the singleton name/timezone directly in its seeded database row,
+not through the read-only profile API, before use. The persisted IANA
 timezone defines the backend value of today; it never rewrites meal DATE values.
 
 ## Run the applications
 
 Run these in separate terminals:
 
-~~~bash
+```bash
 npm --prefix server run dev
 npm --prefix client run dev
-~~~
+```
 
 The API defaults to http://localhost:3000/api/v1 and the client to
 http://localhost:5173. Build before starting the production backend:
 
-~~~bash
+```bash
 npm --prefix server run build
 npm --prefix server start
-~~~
+```
 
 `npm start` runs `server/dist/server.js` with Node and does not depend on a
 TypeScript development runner. The build removes only stale `server/dist`
@@ -110,10 +111,9 @@ single diary.
 
 Set VITE_API_BASE_URL only when the browser should use a non-default API:
 
-~~~bash
-VITE_API_BASE_URL=http://localhost:3000/api/v1 
-npm --prefix client run dev
-~~~
+```bash
+VITE_API_BASE_URL=http://localhost:3000/api/v1 npm --prefix client run dev
+```
 
 This value is a public browser URL, not a place for secrets.
 
@@ -138,14 +138,16 @@ micronutrient units. Unknown values remain null and known zero remains zero. An
 `needs_clarification` result contains a useful clarification and no nutrition
 guesses. Provider metadata and `is_estimate=true` are assigned by the server.
 
-~~~bash
+```bash
 curl -i -X POST http://localhost:3000/api/v1/nutrition/estimate \
   -H 'Content-Type: application/json' \
   --data '{"food_name":"cooked brown rice","meal_type":"lunch","consumption_date":"2026-09-12","consumed_quantity":200,"quantity_unit":"g"}'
-~~~
+```
 
 The response is a suggestion only: it has provider/status, nullable core and
 six-key micronutrient values, assumptions, clarification, and missing_fields.
+It does not echo food_name, consumption_date, consumed_quantity, quantity_unit,
+or meal_type; the client retains those values from the request it just sent.
 It never includes a saved-meal ID and performs no meal/goal write. On
 `/meals/new`, Estimate nutrition is an explicit action, never a typing trigger.
 Successful values remain editable and are marked “AI-estimated from meal
@@ -154,6 +156,17 @@ describes how the entry was supplied, not measured accuracy. Changing the
 estimation basis preserves nutrition and marks it for review rather than
 rescaling or calling Gemini automatically. Cancellation, timeout, stale
 responses, and clarification preserve current input.
+
+| Status | Codes |
+| --- | --- |
+| 400 | MALFORMED_JSON |
+| 413 | REQUEST_TOO_LARGE |
+| 415 | UNSUPPORTED_MEDIA_TYPE |
+| 422 | VALIDATION_ERROR, AI_ANALYSIS_REFUSED |
+| 429 | AI_RATE_LIMITED, AI_BUSY |
+| 500 | INTERNAL_ERROR |
+| 502 | AI_INVALID_OUTPUT |
+| 503 | AI_CONFIGURATION_ERROR, AI_PROVIDERS_UNAVAILABLE, DATABASE_TIMEOUT, DATABASE_UNAVAILABLE |
 
 ## Image extraction API
 
@@ -171,15 +184,15 @@ to JPEG quality 90 with a 10,000,000-byte output cap.
 
 Example:
 
-~~~bash
+```bash
 curl -i http://localhost:3000/api/v1/nutrition/extract \
   -F image_type=nutrition_label \
   -F 'image=@synthetic-label.png;type=image/png'
-~~~
+```
 
 A successful label response is an editable draft, for example:
 
-~~~json
+```json
 {
   "data": {
     "provider": "gemini",
@@ -190,7 +203,7 @@ A successful label response is an editable draft, for example:
     "draft": {
       "food_name": "Synthetic example",
       "meal_type": null,
-      "consumption_date": "2026-09-14",
+      "consumption_date": "2026-09-12",
       "consumed_quantity": 100,
       "quantity_unit": "g",
       "calories_kcal": 250,
@@ -211,16 +224,17 @@ A successful label response is an editable draft, for example:
     "missing_fields": ["meal_type"]
   }
 }
-~~~
+```
 
 The provider may leave unsupported facts as null. Known zero remains zero.
 missing_fields deterministically lists only values still required by the
 ordinary meal-write contract. consumption_date, source, estimate status, and
-provider identity are server-owned. A plate returns one whole-plate estimate
-with explicit assumptions rather than component records. A label uses one
-coherent quantity column: values stated per 100 g remain the totals for that
-100 g basis, are not multiplied again, and percent Daily Value is never treated
-as a nutrient amount.
+provider identity are server-owned — consumption_date defaults to the current
+date in the persisted profile timezone and remains editable before save. A
+plate returns one whole-plate estimate with explicit assumptions rather than
+component records. A label uses one coherent quantity column: values stated
+per 100 g remain the totals for that 100 g basis, are not multiplied again,
+and percent Daily Value is never treated as a nutrient amount.
 
 Extraction is read-only. It performs no meal insert/update, stores no image
 locally, and uses no provider file API. To persist a reviewed result, fill every
@@ -235,11 +249,11 @@ refusal, valid unreadable/not-food status, caller cancellation, application
 defects, availability failures, and invalid output map directly to their bounded
 API errors.
 
-The Gemini attempt is capped at 25 seconds. The complete post-upload flow,
-including image work, is capped at 55 seconds; image processing
-has its own five-second bound. Multipart upload waiting is capped at 15 seconds.
-Caller disconnect and server shutdown propagate cancellation to worker/provider
-requests before resources are released.
+Each step of the flow — the Gemini call, image processing, the multipart
+upload wait, and the overall post-upload flow — has its own timeout, so a slow
+or unresponsive step fails safely instead of hanging indefinitely. The browser
+sets its own abort deadline slightly longer than the server's, purely to allow
+for normal network delay; it is not a separate, independent limit.
 
 Admission is local to each backend process: image and text AI work share one
 two-request concurrency limit and one per-IP budget of 10 AI requests per
@@ -291,10 +305,10 @@ The bounded live transport/no-persistence harness is deliberately separate
 because it consumes configured provider calls and touches a temporary owned
 database schema:
 
-~~~bash
+```bash
 cd server
-node --import tsx support/phase9-live-verification.ts
-~~~
+node --env-file=.env --import tsx support/phase9-live-verification.ts
+```
 
 The harness creates a unique nutritrack_p9_* schema, verifies the synthetic
 label and permitted plate through the real Gemini route, compares table digests,
@@ -306,11 +320,10 @@ The meal-basics live transport check is deliberately separate because it makes
 one configured Gemini text request. It validates the structured result and
 prints only bounded metadata, never credentials or raw provider output:
 
-~~~bash
+```bash
 cd server
 node --env-file=.env --import tsx support/meal-estimate-live-check.ts
-~~~
-
+```
 
 ## Meal API
 
@@ -330,7 +343,7 @@ receives 415, and schema failures receive 422.
 
 A complete POST or PUT body is:
 
-~~~json
+```json
 {
   "food_name": "Example yogurt",
   "meal_type": "breakfast",
@@ -352,7 +365,7 @@ A complete POST or PUT body is:
   "entry_source": "manual",
   "is_estimate": false
 }
-~~~
+```
 
 Every shown key is required. Unknown, server-owned, and nested extra keys are
 rejected. food_name is trimmed and limited to 200 characters. Supported meal
@@ -377,11 +390,11 @@ remain strings and timestamps are returned as UTC ISO strings.
 
 Example:
 
-~~~bash
+```bash
 curl -i -X POST http://localhost:3000/api/v1/meals \
   -H 'Content-Type: application/json' \
   --data-binary @meal.json
-~~~
+```
 
 PUT is a full replacement, never an upsert. It preserves id and created_at and
 sets updated_at. A valid missing UUID returns 404 MEAL_NOT_FOUND; a malformed
@@ -402,7 +415,7 @@ types receive 415, and schema failures receive 422.
 
 Every PUT must provide this complete strict body:
 
-~~~json
+```json
 {
   "daily_calories_kcal": 2200,
   "daily_protein_g": 0,
@@ -410,7 +423,7 @@ Every PUT must provide this complete strict body:
   "daily_fat_g": null,
   "target_weight_kg": 72.3456
 }
-~~~
+```
 
 Each value may be null. When set, calories and target weight must be greater
 than zero; macro targets may be zero. All numbers must be finite JSON numbers
@@ -429,11 +442,11 @@ generic 500 contract instead of recreating data.
 
 Example:
 
-~~~bash
+```bash
 curl -i -X PUT http://localhost:3000/api/v1/goals \
   -H 'Content-Type: application/json' \
   --data-binary @goals.json
-~~~
+```
 
 ## Filtering and pagination
 
@@ -445,17 +458,18 @@ GET /api/v1/meals accepts only:
 - page: default 1, maximum 2,147,483,647.
 - page_size: default 20, range 1 through 100.
 
-One date bound is valid. When both are supplied, start_date must not follow
-end_date. Future bounds are valid. Repeated, unknown, blank, signed,
-fractional, or exponential query values are rejected. Decimal strings with
-leading zeroes are accepted and normalized to their integer value.
+A single date bound may be supplied alone. When both are supplied, start_date
+must not follow end_date. Future bounds are valid. Repeated, unknown, blank,
+signed, fractional, or exponential query values are rejected. Numeric strings
+with leading zeroes (for example, "007") are accepted and normalized to their
+integer value.
 
 Filters apply before both count and page reads. Results are ordered by
 consumption_date descending, then created_at descending, then id descending.
 Count and page queries run on one checked-out client in a short REPEATABLE READ
 READ ONLY transaction.
 
-~~~json
+```json
 {
   "items": [],
   "pagination": {
@@ -465,7 +479,7 @@ READ ONLY transaction.
     "total_pages": 0
   }
 }
-~~~
+```
 
 A page beyond the end remains a 200 with empty items and the true filtered
 total_items and total_pages. An empty match has total_pages zero.
@@ -491,7 +505,7 @@ meal-history endpoint keeps its independent, uncapped date-range behavior.
 
 The response is not wrapped in data:
 
-~~~json
+```json
 {
   "range": {
     "start_date": "2026-09-07",
@@ -545,7 +559,7 @@ The response is not wrapped in data:
     "total_pages": 1
   }
 }
-~~~
+```
 
 The real response includes all four core nutrients in each comparison and all
 six micronutrients in each summary. Core totals are zero for empty ranges.
@@ -576,9 +590,9 @@ per-meal output cap is applied to valid aggregate totals.
 
 Example:
 
-~~~bash
+```bash
 curl 'http://localhost:3000/api/v1/reports/nutrition?start_date=2026-09-10&end_date=2026-09-15&group_by=week&page=1&page_size=20'
-~~~
+```
 
 ## Manual web workflows
 
@@ -623,7 +637,7 @@ change the full-range totals, micronutrients, or goal comparison panels.
 All errors include the server-generated request ID also returned in the
 X-Request-ID header:
 
-~~~json
+```json
 {
   "error": {
     "code": "VALIDATION_ERROR",
@@ -637,7 +651,7 @@ X-Request-ID header:
     "request_id": "server-generated-uuid"
   }
 }
-~~~
+```
 
 Stable statuses include malformed JSON 400, missing meal/route 404, oversized
 JSON 413, unsupported mutation media type 415, validation 422, narrowly known
@@ -647,25 +661,25 @@ database timeout/unavailability 503, and redacted unexpected failures 500.
 
 Credential-free tests never connect to PostgreSQL:
 
-~~~bash
+```bash
 npm --prefix server run typecheck
 npm --prefix server run lint
 npm --prefix server test
 npm --prefix server run build
-~~~
+```
 
 Real database tests deliberately reuse the user-selected server/.env connection;
 no .env.test or second credential set is required:
 
-~~~bash
+```bash
 npm --prefix server run test:db
-~~~
+```
 
 The test loader parses that exact file so inherited shell values cannot redirect
 the target. Every run creates cryptographically unique, strictly validated
 nutritrack_test_* schemas and records ownership only after successful creation.
 Every test/migration/server connection sets and verifies an exact search_path
-containing only its owned schema and excluding public and `$user`.
+containing only its owned schema and excluding `public` and `$user`.
 
 Fixtures, including live POST/PUT/DELETE probes, never enter the ordinary
 application diary. The harness compares application-table snapshots, stops
@@ -674,7 +688,7 @@ pools even if cleanup reports an error.
 
 The full repository checks are:
 
-~~~bash
+```bash
 npm --prefix server run typecheck
 npm --prefix server run lint
 npm --prefix server test
@@ -685,16 +699,16 @@ npm --prefix client run lint
 npm --prefix client test
 npm --prefix client run build
 git diff --check
-~~~
+```
 
 ## Production frontend
 
 Build and preview the static frontend:
 
-~~~bash
+```bash
 npm --prefix client run build
 npm --prefix client run preview
-~~~
+```
 
 Preview uses http://localhost:4173 with strict-port behavior. Build-time
 VITE_API_BASE_URL must identify the backend used by that preview. Development
@@ -754,8 +768,10 @@ and production-preview workflows were both verified in an actual browser.
   extraction persistence.
 - Explicit nutrition-label and plate image selection with validated local
   preview, exact client size/type checks, and object-URL cleanup.
-- Gemini-only multipart extraction through the central client with a 60-second
-  aborting deadline, explicit retry, cancellation, and stale-response protection.
+- Gemini-only multipart extraction through the central client with a bounded
+  client-side abort deadline (set slightly longer than the server-side cap to
+  allow for network delay), explicit user-triggered retry (never automatic),
+  cancellation, and stale-response protection.
 - Shared MealForm editable prefill with null/zero preservation, live missing-field
   guidance, locked provenance, dirty-draft confirmation, and no auto-rescaling.
 - Explicit ordinary meal persistence only after review, with failed-save draft
@@ -768,3 +784,10 @@ and production-preview workflows were both verified in an actual browser.
   stale-response and pending-edit protection, changed-basis review, and no
   persistence before the ordinary explicit Save meal action.
 
+## Documentation and scope
+
+Gemini is the only AI provider used by NutriTrack.
+
+The application includes no automatic AI save, OCR service,
+image persistence, authentication, multi-user ownership, chat, PDF import,
+export/reminders, schema reset, goal history, or weight history. 
