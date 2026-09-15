@@ -1,4 +1,9 @@
-import type { ExtractionDraft, Meal, MealPayload } from "../types";
+import type {
+  ExtractionDraft,
+  Meal,
+  MealBasicsPayload,
+  MealPayload,
+} from "../types";
 import { z } from "zod";
 
 import { isValidDateOnly } from "../utils/dates";
@@ -20,27 +25,37 @@ const quantityUnitInput = z
   .pipe(z.enum(quantityUnitValues, { error: "Quantity unit is required." }));
 
 
+function mealBasicsShape(today: string) {
+  return {
+    food_name: z
+      .string()
+      .trim()
+      .min(1, "Food name is required.")
+      .max(200, "Food name must be 200 characters or fewer."),
+    meal_type: mealTypeInput,
+    consumption_date: z
+      .string()
+      .refine(isValidDateOnly, "Enter a real date in YYYY-MM-DD format.")
+      .refine(
+        (value) => !today || !isValidDateOnly(value) || value <= today,
+        "Consumption date cannot be after today.",
+      ),
+    consumed_quantity: numericInput({
+      label: "Consumed quantity",
+      positive: true,
+    }),
+    quantity_unit: quantityUnitInput,
+  };
+}
+
+export function mealBasicsFormSchema(today: string) {
+  return z.strictObject(mealBasicsShape(today));
+}
+
 export function mealFormSchema(today: string) {
   return z
     .strictObject({
-      food_name: z
-        .string()
-        .trim()
-        .min(1, "Food name is required.")
-        .max(200, "Food name must be 200 characters or fewer."),
-      meal_type: mealTypeInput,
-      consumption_date: z
-        .string()
-        .refine(isValidDateOnly, "Enter a real date in YYYY-MM-DD format.")
-        .refine(
-          (value) => !today || !isValidDateOnly(value) || value <= today,
-          "Consumption date cannot be after today.",
-        ),
-      consumed_quantity: numericInput({
-        label: "Consumed quantity",
-        positive: true,
-      }),
-      quantity_unit: quantityUnitInput,
+      ...mealBasicsShape(today),
       calories_kcal: numericInput({ label: "Calories" }),
       protein_g: numericInput({ label: "Protein" }),
       carbs_g: numericInput({ label: "Carbohydrates" }),
@@ -69,6 +84,25 @@ export function mealFormSchema(today: string) {
 export type MealFormSchema = ReturnType<typeof mealFormSchema>;
 export type MealFormInput = z.input<MealFormSchema>;
 export type MealFormOutput = z.output<MealFormSchema>;
+
+export function mealBasicsPayload(
+  values: MealFormInput,
+  today: string,
+): MealBasicsPayload {
+  const parsed = mealBasicsFormSchema(today).parse({
+    food_name: values.food_name,
+    meal_type: values.meal_type,
+    consumption_date: values.consumption_date,
+    consumed_quantity: values.consumed_quantity,
+    quantity_unit: values.quantity_unit,
+  });
+  if (parsed.consumed_quantity === null) {
+    // The non-nullable input schema rejects blank quantity; this guard also
+    // narrows the shared numeric helper's conservative output type.
+    throw new TypeError("Consumed quantity is required.");
+  }
+  return { ...parsed, consumed_quantity: parsed.consumed_quantity };
+}
 
 export const REQUIRED_MEAL_FIELDS = [
   "food_name",

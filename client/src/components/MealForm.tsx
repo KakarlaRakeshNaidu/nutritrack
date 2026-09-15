@@ -8,6 +8,7 @@ import {
 } from "react-hook-form";
 
 import { ApiError } from "../api/client";
+import { estimateNutrition } from "../api/nutrition";
 import type { Meal, MealPayload } from "../types";
 
 import {
@@ -19,6 +20,7 @@ import {
 } from "../utils/nutrition";
 import {
   mealFormSchema,
+  mealBasicsPayload,
   missingRequiredMealFields,
   mealPayload,
   mealToFormValues,
@@ -54,6 +56,51 @@ interface MealFormProps {
   lockProvenance?: boolean;
   onMissingFieldsChange?: (fields: string[]) => void;
   onSubmittingChange?: (submitting: boolean) => void;
+  enableNutritionEstimate?: boolean;
+}
+
+const BASIC_FIELDS: Array<FieldPath<MealFormInput>> = [
+  "food_name",
+  "meal_type",
+  "consumption_date",
+  "consumed_quantity",
+  "quantity_unit",
+];
+
+function valueKey(values: Partial<MealFormInput>, fields: string[]): string {
+  return JSON.stringify(
+    fields.map((field) => {
+      const [root, nested] = field.split(".");
+      const value = nested
+        ? Reflect.get(Reflect.get(values, root) ?? {}, nested)
+        : Reflect.get(values, root);
+      return value ?? null;
+    }),
+  );
+}
+
+function basicsKey(values: Partial<MealFormInput>): string {
+  return valueKey(values, BASIC_FIELDS);
+}
+
+function nutritionKey(values: Partial<MealFormInput>): string {
+  return valueKey(values, [
+    "calories_kcal",
+    "protein_g",
+    "carbs_g",
+    "fat_g",
+    ...MICRONUTRIENTS.map(({ name }) => "micronutrients." + name),
+  ]);
+}
+
+function hasNutritionInput(values: Partial<MealFormInput>): boolean {
+  return JSON.parse(nutritionKey(values)).some(
+    (value: unknown) => value !== null && value !== "",
+  );
+}
+
+function formEstimateNumber(value: number | null): string {
+  return value === null ? "" : String(value);
 }
 
 function isApiField(value: string): value is FieldPath<MealFormInput> {
@@ -97,15 +144,30 @@ export function MealForm({
   lockProvenance = false,
   onMissingFieldsChange,
   onSubmittingChange,
+  enableNutritionEstimate = false,
 }: MealFormProps) {
   const schema = useMemo(() => mealFormSchema(today), [today]);
   const submittingRef = useRef(false);
   const [formError, setFormError] = useState("");
+  const [estimatePending, setEstimatePending] = useState(false);
+  const [estimateError, setEstimateError] = useState("");
+  const [estimateStatus, setEstimateStatus] = useState("");
+  const [estimateAssumptions, setEstimateAssumptions] = useState<string[]>([]);
+  const [clarification, setClarification] = useState<string | null>(null);
+  const [estimatedBasis, setEstimatedBasis] = useState<string | null>(null);
+  const [basisChanged, setBasisChanged] = useState(false);
+  const estimateController = useRef<AbortController | null>(null);
+  const estimateSequence = useRef(0);
+  const requestedBasis = useRef<string | null>(null);
+  const previousBasis = useRef<string | null>(null);
   const {
     register,
     handleSubmit,
     reset,
     setError,
+    setValue,
+    getValues,
+    trigger,
     watch,
     formState: { errors, isDirty, isSubmitting, isValid },
   } = useForm<MealFormInput, unknown, MealFormOutput>({
@@ -115,6 +177,7 @@ export function MealForm({
   });
 
   const rawValues = watch();
+  const currentBasisKey = basicsKey(rawValues);
   const missingFields = missingRequiredMealFields(rawValues);
   const missingKey = missingFields.join(",");
 
@@ -129,6 +192,35 @@ export function MealForm({
   useEffect(() => {
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (previousBasis.current === null) {
+      previousBasis.current = currentBasisKey;
+    } else if (previousBasis.current !== currentBasisKey) {
+      previousBasis.current = currentBasisKey;
+      if (estimateController.current) {
+        // A changed request basis invalidates both the fetch and its sequence,
+        // preventing a late response from replacing current nutrition.
+        estimateSequence.current += 1;
+        estimateController.current.abort();
+        estimateController.current = null;
+        requestedBasis.current = null;
+        setEstimatePending(false);
+        setEstimateStatus("Estimation canceled because meal basics changed.");
+      }
+    }
+    setBasisChanged(
+      estimatedBasis !== null && estimatedBasis !== currentBasisKey,
+    );
+  }, [currentBasisKey, estimatedBasis]);
+
+  useEffect(
+    () => () => {
+      estimateSequence.current += 1;
+      estimateController.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!isDirty) {
@@ -160,7 +252,7 @@ export function MealForm({
   const submit = handleSubmit(async (parsed) => {
     // The ref closes the small interval before React applies disabled state, so
     // a rapid second activation cannot issue a duplicate mutation.
-    if (submittingRef.current) {
+    if (submittingRef.current || estimatePending) {
       return;
     }
     submittingRef.current = true;
@@ -176,6 +268,125 @@ export function MealForm({
       submittingRef.current = false;
     }
   });
+
+  function cancelEstimate(): void {
+    estimateSequence.current += 1;
+    estimateController.current?.abort();
+    estimateController.current = null;
+    requestedBasis.current = null;
+    setEstimatePending(false);
+    setEstimateError("");
+    setEstimateStatus("Nutrition estimation canceled.");
+  }
+
+  async function estimateFromBasics(): Promise<void> {
+    if (estimatePending || isSubmitting) return;
+    const values = getValues();
+    let basics;
+    try {
+      basics = mealBasicsPayload(values, today);
+    } catch {
+      await trigger(BASIC_FIELDS);
+      setEstimateError("Complete valid meal basics before estimating nutrition.");
+      return;
+    }
+    if (
+      hasNutritionInput(values) &&
+      !window.confirm(
+        "Replace the current nutrition values with a new AI estimate?",
+      )
+    ) {
+      return;
+    }
+
+    const basis = basicsKey(values);
+    const nutritionBeforeRequest = nutritionKey(values);
+    const sequence = ++estimateSequence.current;
+    const controller = new AbortController();
+    estimateController.current?.abort();
+    estimateController.current = controller;
+    requestedBasis.current = basis;
+    setEstimatePending(true);
+    setEstimateError("");
+    setEstimateStatus("");
+    setClarification(null);
+
+    try {
+      const result = await estimateNutrition(basics, {
+        signal: controller.signal,
+      });
+      if (
+        sequence !== estimateSequence.current ||
+        controller.signal.aborted ||
+        requestedBasis.current !== basicsKey(getValues())
+      ) {
+        return;
+      }
+      if (nutritionBeforeRequest !== nutritionKey(getValues())) {
+        setEstimateStatus(
+          "Nutrition changed while estimation was pending, so the estimate was not applied.",
+        );
+        return;
+      }
+      setEstimateAssumptions(result.assumptions);
+      setClarification(result.clarification);
+      if (result.status === "needs_clarification") {
+        setEstimateStatus("More meal detail is needed before estimating.");
+        return;
+      }
+
+      const options = { shouldDirty: true, shouldValidate: true };
+      setValue(
+        "calories_kcal",
+        formEstimateNumber(result.nutrition.calories_kcal),
+        options,
+      );
+      setValue(
+        "protein_g",
+        formEstimateNumber(result.nutrition.protein_g),
+        options,
+      );
+      setValue(
+        "carbs_g",
+        formEstimateNumber(result.nutrition.carbs_g),
+        options,
+      );
+      setValue("fat_g", formEstimateNumber(result.nutrition.fat_g), options);
+      for (const { name } of MICRONUTRIENTS) {
+        setValue(
+          `micronutrients.${name}`,
+          formEstimateNumber(result.nutrition.micronutrients[name]),
+          options,
+        );
+      }
+      setValue("entry_source", "manual", options);
+      setValue("is_estimate", true, options);
+      setEstimatedBasis(basis);
+      setBasisChanged(false);
+      setEstimateStatus(
+        result.missing_fields.length > 0
+          ? "AI estimate applied. Complete or review the remaining blank nutrition fields."
+          : "AI estimate applied. Review every nutrition value before saving.",
+      );
+    } catch (error) {
+      if (
+        sequence === estimateSequence.current &&
+        !controller.signal.aborted
+      ) {
+        setEstimateError(
+          error instanceof ApiError
+            ? error.message
+            : "Nutrition could not be estimated. Enter values manually or try again.",
+        );
+      }
+    } finally {
+      if (sequence === estimateSequence.current) {
+        estimateController.current = null;
+        requestedBasis.current = null;
+        setEstimatePending(false);
+      }
+    }
+  }
 
   function numericField(
     name: FieldPath<MealFormInput>,
@@ -281,6 +492,67 @@ export function MealForm({
             </select>
           </label>
         </div>
+        {enableNutritionEstimate && (
+          <div className="estimate-panel" aria-label="AI nutrition estimation">
+            <p className="section-note">
+              A specific description such as “cooked brown rice” improves the
+              estimate. Gemini suggestions remain editable and are not saved
+              automatically.
+            </p>
+            <div className="button-row">
+              <button
+                className="button secondary"
+                type="button"
+                disabled={estimatePending || isSubmitting}
+                onClick={() => void estimateFromBasics()}
+              >
+                {estimatePending
+                  ? "Estimating nutrition..."
+                  : estimatedBasis
+                    ? "Re-estimate nutrition"
+                    : "Estimate nutrition"}
+              </button>
+              {estimatePending && (
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={cancelEstimate}
+                >
+                  Cancel estimation
+                </button>
+              )}
+            </div>
+            {estimatePending && (
+              <p role="status">Estimating totals for the entered quantity…</p>
+            )}
+            {estimateError && <p className="form-error" role="alert">{estimateError}</p>}
+            {estimateStatus && <p role="status">{estimateStatus}</p>}
+            {clarification && (
+              <p className="form-error" role="alert">
+                <strong>Clarification needed:</strong> {clarification}
+              </p>
+            )}
+            {estimatedBasis && !basisChanged && (
+              <p><strong>AI-estimated from meal details.</strong></p>
+            )}
+            {basisChanged && (
+              <p className="status-message neutral" role="status">
+                Meal basics changed after estimation. Preserve and review the
+                nutrition values, or choose Re-estimate nutrition.
+              </p>
+            )}
+            {estimateAssumptions.length > 0 && (
+              <div>
+                <strong>Estimation assumptions</strong>
+                <ul>
+                  {estimateAssumptions.map((assumption, index) => (
+                    <li key={index}>{assumption}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="form-section" aria-labelledby="core-heading">
@@ -322,15 +594,19 @@ export function MealForm({
           <h2 id="source-heading">Source and estimate</h2>
         </div>
         <div className="form-grid">
-          {lockProvenance ? (
+          {lockProvenance || estimatedBasis !== null ? (
             <div className="provenance-summary">
               <strong>
-                {rawValues.entry_source === "food_plate"
+                {estimatedBasis !== null
+                  ? "Manual meal details"
+                  : rawValues.entry_source === "food_plate"
                   ? "Plate photo"
                   : "Nutrition label photo"}
               </strong>
               <span>
-                {rawValues.is_estimate
+                {estimatedBasis !== null
+                  ? "Manual identifies the entry method; these values remain an AI estimate."
+                  : rawValues.is_estimate
                   ? "Saved as an estimate."
                   : "Saved as label-derived nutrition."}
               </span>
@@ -370,7 +646,11 @@ export function MealForm({
         <button
           className="button primary"
           type="submit"
-          disabled={isSubmitting || (disableSubmitUntilValid && !isValid)}
+          disabled={
+            isSubmitting ||
+            estimatePending ||
+            (disableSubmitUntilValid && !isValid)
+          }
         >
           {isSubmitting ? "Saving..." : submitLabel}
         </button>

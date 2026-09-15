@@ -227,15 +227,25 @@ async function persistedMeal(foodName: string): Promise<{
   };
   const meal = payload.items?.find((item) => item.food_name === foodName);
   assert.ok(meal, "Saved meal was not returned after reload: " + foodName);
-  assert.equal(typeof meal.consumed_quantity, "number");
-  assert.equal(typeof meal.calories_kcal, "number");
-  assert.equal(typeof meal.entry_source, "string");
-  assert.equal(typeof meal.is_estimate, "boolean");
+  const {
+    consumed_quantity,
+    calories_kcal,
+    entry_source,
+    is_estimate,
+  } = meal;
+  if (
+    typeof consumed_quantity !== "number" ||
+    typeof calories_kcal !== "number" ||
+    typeof entry_source !== "string" ||
+    typeof is_estimate !== "boolean"
+  ) {
+    throw new TypeError("Saved meal fields had unexpected runtime types.");
+  }
   return {
-    consumed_quantity: meal.consumed_quantity,
-    calories_kcal: meal.calories_kcal,
-    entry_source: meal.entry_source,
-    is_estimate: meal.is_estimate,
+    consumed_quantity,
+    calories_kcal,
+    entry_source,
+    is_estimate,
   };
 }
 

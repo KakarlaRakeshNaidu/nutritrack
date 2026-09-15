@@ -1,13 +1,12 @@
 # Personal Calorie Tracker
 
-Personal Calorie Tracker is a staged full-stack application for recording meals
-and understanding personal nutrition. Phase 10 adds an image-assisted web
-workflow to the persisted diary, profile, goals, dashboard, and reporting
-features completed in earlier phases. A nutrition-label or plate image can now
-produce a strictly validated, editable meal draft through Gemini, the sole
-image-analysis provider. Extraction never saves a meal; the user must review
-and complete the draft before an explicit Save meal action submits the ordinary
-meal POST.
+Personal Calorie Tracker is a full-stack application for recording meals and
+understanding personal nutrition. The persisted diary, current goals, dashboard,
+and reports support manual entry plus two optional Gemini-assisted workflows:
+nutrition-label/plate image extraction and nutrition estimation from explicitly
+submitted meal basics. Both produce strictly validated, editable suggestions.
+AI analysis never saves a meal; the user must review the draft and explicitly
+choose Save meal to submit the ordinary meal POST.
 
 All completed application source, tests, and executable support code are written
 in strict TypeScript. The backend production build emits JavaScript to
@@ -54,11 +53,12 @@ connection, idle, and statement timeouts. Startup proves connectivity before
 listening. Logs do not print database URLs, certificate paths, SQL, or secrets.
 
 Gemini uses the optional GEMINI_API_KEY and GEMINI_MODEL pair. Both values must
-be present and nonblank. Missing AI configuration does not block
-startup or any manual/profile/goal/report API, but extraction returns a safe
-configuration error when Gemini is unavailable. The
-browser receives no provider credentials. Never put backend credentials into
-VITE-prefixed values or tracked example files.
+be present and nonblank. Missing AI configuration does not block startup or any
+manual/profile/goal/report API, but image extraction and meal-basics estimation
+return a safe configuration error when Gemini is unavailable. Gemini is the
+sole provider; no Groq/xAI fallback configuration is used. The browser receives
+no provider credentials. Never put backend credentials into VITE-prefixed
+values or tracked example files.
 
 ## Database setup
 
@@ -101,7 +101,9 @@ TypeScript development runner. The build removes only stale `server/dist`
 output, type-checks production source, and emits a fresh build.
 
 This is a mandatory single-user application and has no authentication or
-ownership fields.
+ownership fields. Run it only in a deployment boundary where access is already
+appropriately restricted; anyone who can reach the API can read and mutate the
+single diary.
 
 Set VITE_API_BASE_URL only when the browser should use a non-default API:
 
@@ -115,6 +117,39 @@ The backend CLIENT_ORIGIN must exactly match the browser origin. The standard
 development origin is http://localhost:5173 and preview is
 http://localhost:4173; change the configured origin between those checks rather
 than disabling CORS or allowing a wildcard.
+
+## Meal-basics nutrition estimation API
+
+POST /api/v1/nutrition/estimate accepts application/json with exactly
+food_name, meal_type, consumption_date, consumed_quantity, and quantity_unit.
+It applies the existing name, category, date, quantity, unit, numeric-bound,
+and four-decimal rules without weakening the complete meal-write schema.
+Unexpected fields, query parameters, numeric strings, future consumption dates,
+and incompatible media types are rejected.
+
+The route makes one bounded Gemini text request with structured JSON output.
+It asks for consumed-quantity totals in kcal, g, and the canonical mg/mcg
+micronutrient units. Unknown values remain null and known zero remains zero. An
+`ok` result contains at least one known core nutrient; a
+`needs_clarification` result contains a useful clarification and no nutrition
+guesses. Provider metadata and `is_estimate=true` are assigned by the server.
+
+~~~bash
+curl -i -X POST http://localhost:3000/api/v1/nutrition/estimate \
+  -H 'Content-Type: application/json' \
+  --data '{"food_name":"cooked brown rice","meal_type":"lunch","consumption_date":"2026-09-12","consumed_quantity":200,"quantity_unit":"g"}'
+~~~
+
+The response is a suggestion only: it has provider/status, nullable core and
+six-key micronutrient values, assumptions, clarification, and missing_fields.
+It never includes a saved-meal ID and performs no meal/goal write. On
+`/meals/new`, Estimate nutrition is an explicit action, never a typing trigger.
+Successful values remain editable and are marked “AI-estimated from meal
+details.” Saving uses `entry_source="manual"` with `is_estimate=true`; manual
+describes how the entry was supplied, not measured accuracy. Changing the
+estimation basis preserves nutrition and marks it for review rather than
+rescaling or calling Gemini automatically. Cancellation, timeout, stale
+responses, and clarification preserve current input.
 
 ## Image extraction API
 
@@ -202,10 +237,10 @@ has its own five-second bound. Multipart upload waiting is capped at 15 seconds.
 Caller disconnect and server shutdown propagate cancellation to worker/provider
 requests before resources are released.
 
-Admission is local to each backend process: at most two extraction requests run
-concurrently, with no queue, and each IP may make 10 extraction requests per
-10-minute window. Rejections return 429 with Retry-After. These limits do not
-apply to the manual APIs and are not distributed across multiple processes.
+Admission is local to each backend process: image and text AI work share one
+two-request concurrency limit and one per-IP budget of 10 AI requests per
+10-minute window, with no queue. Rejections return 429 with Retry-After. These
+limits do not apply to manual APIs and are not distributed across processes.
 
 ## Image-assisted web workflow
 
@@ -262,6 +297,15 @@ label and permitted plate through the real Gemini route, compares table digests,
 drops only its owned schema, and closes its pool. It prints the model name,
 bounded call count, timings, and observed synthetic values, never keys or raw
 payloads.
+
+The meal-basics live transport check is deliberately separate because it makes
+one configured Gemini text request. It validates the structured result and
+prints only bounded metadata, never credentials or raw provider output:
+
+~~~bash
+cd server
+node --env-file=.env --import tsx support/meal-estimate-live-check.ts
+~~~
 
 
 ## Meal API
@@ -538,7 +582,8 @@ The client routes are:
 
 - / for the API-backed current-week dashboard.
 - /meals for URL-backed filters and pagination.
-- /meals/new for complete manual meal creation.
+- /meals/new for complete manual meal creation and optional explicit
+  meal-basics estimation.
 - /meals/from-image for explicit image analysis and editable meal prefill.
 - /meals/:id/edit for complete meal replacement.
 - /goals for current goal retrieval and full replacement.
@@ -651,7 +696,7 @@ Preview uses http://localhost:4173 with strict-port behavior. Build-time
 VITE_API_BASE_URL must identify the backend used by that preview. Development
 and production-preview workflows were both verified in an actual browser.
 
-## Implemented through Phase 10
+## Implemented feature set
 
 - Strict startup configuration, request IDs, Helmet/CORS, safe errors, and
   reusable request validation.
@@ -711,15 +756,35 @@ and production-preview workflows were both verified in an actual browser.
   guidance, locked provenance, dirty-draft confirmation, and no auto-rescaling.
 - Explicit ordinary meal persistence only after review, with failed-save draft
   retention, duplicate-submit protection, history navigation, and report updates.
+- Strict meal-basics estimation request/provider/result schemas using one
+  Gemini text request with no image fabrication, tools, fallback, or retry.
+- Explicit Estimate/Re-estimate and Cancel controls in the shared meal form,
+  editable null/zero-preserving prefill, clarification/assumption display,
+  stale-response and pending-edit protection, changed-basis review, and no
+  persistence before the ordinary explicit Save meal action.
 
 ## Documentation and scope
 
 Design, requirements, traceability, phase prompts, and verification evidence are
 under docs/. Phase 9 verification is in docs/PHASE_9_VERIFICATION.md and Phase
-10 verification is in docs/PHASE_10_VERIFICATION.md. The
-post-Phase-7 TypeScript checkpoint remains in
-docs/TYPESCRIPT_MIGRATION_VERIFICATION.md.
+10 verification is in docs/PHASE_10_VERIFICATION.md. Meal-basics estimation,
+the integration/security review, and the final audit are recorded in
+docs/MEAL_BASICS_AI_ESTIMATION_VERIFICATION.md,
+docs/PHASE_11_VERIFICATION.md, and docs/PHASE_12_AUDIT.md. The post-Phase-7
+TypeScript checkpoint remains in docs/TYPESCRIPT_MIGRATION_VERIFICATION.md.
 
-Phase 10 intentionally adds no automatic save, provider adapter, fallback, OCR
-service, image persistence, authentication, chat, PDF import, health/debug
-endpoint, schema reset, goal history, weight history, or Phase 11 work.
+The current approved provider scope is Gemini only. Historical planning and the
+preserved historical portion of Phase 9 verification mention Grok fallback;
+that requirement is superseded and no fallback executes in current code.
+
+The application intentionally includes no automatic AI save, OCR service,
+image persistence, authentication, multi-user ownership, chat, PDF import,
+export/reminders, schema reset, goal history, or weight history. Chat,
+multi-user support, and PDF import are assignment bonuses and are not claimed.
+Current goals are not historical snapshots, and target weight is a configured
+goal only because no weight measurements are recorded.
+
+Previously exposed credential-shaped values were removed from tracked files.
+The user confirmed replacement of the affected PostgreSQL and Gemini
+credentials on 2026-09-15; the application then passed a verified-TLS database
+`SELECT 1` and one authenticated Gemini request without recording secret values.

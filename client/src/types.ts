@@ -75,6 +75,32 @@ export interface ExtractionResult {
   missing_fields: string[];
 }
 
+export interface MealBasicsPayload {
+  food_name: string;
+  meal_type: MealType;
+  consumption_date: string;
+  consumed_quantity: number;
+  quantity_unit: QuantityUnit;
+}
+
+export interface NutritionEstimateResult {
+  provider: "gemini";
+  status: "ok" | "needs_clarification";
+  nutrition: {
+    calories_kcal: number | null;
+    protein_g: number | null;
+    carbs_g: number | null;
+    fat_g: number | null;
+    micronutrients: Micronutrients;
+  };
+  is_estimate: true;
+  assumptions: string[];
+  clarification: string | null;
+  missing_fields: Array<
+    "calories_kcal" | "protein_g" | "carbs_g" | "fat_g"
+  >;
+}
+
 
 export interface MealListParameters {
   start_date?: string;

@@ -22,6 +22,7 @@ import {
   registerNutritionRoutes,
 } from "./modules/nutrition/nutrition.routes.js";
 import type { ExtractionService } from "./modules/nutrition/nutrition.service.js";
+import type { NutritionEstimateService } from "./modules/nutrition/nutrition-estimate.service.js";
 import { registerProfileRoutes } from "./modules/profile/profile.routes.js";
 import {
   enforceReportBodyContract,
@@ -36,6 +37,7 @@ interface CreateAppOptions {
   registerRoutes?: (app: Express) => void;
   logger?: Logger;
   extractionService?: ExtractionService;
+  nutritionEstimateService?: NutritionEstimateService;
   extractionRuntime?: ExtractionRuntime;
   extractionUploadTimeoutMs?: number;
 }
@@ -64,6 +66,7 @@ export function createApp(
     registerRoutes,
     logger = console,
     extractionService,
+    nutritionEstimateService,
     extractionRuntime,
     extractionUploadTimeoutMs,
   }: CreateAppOptions = {},
@@ -87,6 +90,7 @@ export function createApp(
       config,
       clock,
       service: extractionService,
+      estimateService: nutritionEstimateService,
       runtime: extractionRuntime,
       uploadTimeoutMs: extractionUploadTimeoutMs,
     });

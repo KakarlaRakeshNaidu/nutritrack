@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { extractNutrition } from "../src/api/nutrition";
+import { estimateNutrition, extractNutrition } from "../src/api/nutrition";
 
 function result(imageType: "nutrition_label" | "food_plate") {
   const estimate = imageType === "food_plate";
@@ -41,6 +41,101 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe("meal-basics estimation API", () => {
+  const basics = {
+    food_name: "Cooked brown rice",
+    meal_type: "lunch" as const,
+    consumption_date: "2026-09-14",
+    consumed_quantity: 150,
+    quantity_unit: "g" as const,
+  };
+  const response = {
+    data: {
+      provider: "gemini",
+      status: "ok",
+      nutrition: {
+        calories_kcal: 180,
+        protein_g: 0,
+        carbs_g: 38,
+        fat_g: 1.5,
+        micronutrients: {
+          sodium_mg: 0,
+          calcium_mg: null,
+          iron_mg: null,
+          potassium_mg: null,
+          vitamin_c_mg: null,
+          vitamin_d_mcg: null,
+        },
+      },
+      is_estimate: true,
+      assumptions: [],
+      clarification: null,
+      missing_fields: [],
+    },
+  };
+
+  it("sends one exact JSON request and validates the normalized response", async () => {
+    vi.stubEnv("VITE_API_BASE_URL", "http://api.test/api/v1");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(estimateNutrition(basics)).resolves.toMatchObject({
+      provider: "gemini",
+      is_estimate: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/api/v1/nutrition/estimate");
+    expect(options.method).toBe("POST");
+    expect(options.headers).toEqual({ "Content-Type": "application/json" });
+    expect(JSON.parse(String(options.body))).toEqual(basics);
+
+    const invalid = structuredClone(response);
+    invalid.data.nutrition.calories_kcal = "180" as unknown as number;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(invalid), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    await expect(estimateNutrition(basics)).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
+
+  it("aborts text estimation on timeout and preserves caller cancellation", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, options: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        }),
+      ),
+    );
+    const timedOut = estimateNutrition(basics, { timeoutMs: 5 });
+    const timeoutAssertion = expect(timedOut).rejects.toMatchObject({
+      code: "REQUEST_TIMEOUT",
+    });
+    await vi.advanceTimersByTimeAsync(5);
+    await timeoutAssertion;
+
+    vi.useRealTimers();
+    const controller = new AbortController();
+    const cancelled = estimateNutrition(basics, { signal: controller.signal });
+    controller.abort();
+    await expect(cancelled).rejects.toMatchObject({ name: "AbortError" });
+  });
 });
 
 describe("nutrition extraction API", () => {

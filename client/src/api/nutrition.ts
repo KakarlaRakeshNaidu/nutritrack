@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import type { ExtractionResult, ImageType } from "../types";
+import type {
+  ExtractionResult,
+  ImageType,
+  MealBasicsPayload,
+  NutritionEstimateResult,
+} from "../types";
 import { isValidDateOnly } from "../utils/dates";
 import { ApiError, apiRequest } from "./client";
 
@@ -57,6 +62,26 @@ const extractionEnvelopeSchema = z.strictObject({
 
 export const EXTRACTION_TIMEOUT_MS = 60_000;
 
+const estimateResultSchema = z.strictObject({
+  provider: z.literal("gemini"),
+  status: z.enum(["ok", "needs_clarification"]),
+  nutrition: z.strictObject({
+    calories_kcal: nullableNutrient,
+    protein_g: nullableNutrient,
+    carbs_g: nullableNutrient,
+    fat_g: nullableNutrient,
+    micronutrients: micronutrientsSchema,
+  }),
+  is_estimate: z.literal(true),
+  assumptions: z.array(z.string().max(200)).max(10),
+  clarification: z.string().max(500).nullable(),
+  missing_fields: z.array(
+    z.enum(["calories_kcal", "protein_g", "carbs_g", "fat_g"]),
+  ).max(4),
+});
+
+const estimateEnvelopeSchema = z.strictObject({ data: estimateResultSchema });
+
 export async function extractNutrition(
   file: File,
   imageType: ImageType,
@@ -110,6 +135,59 @@ export async function extractNutrition(
       throw new ApiError({
         code: "REQUEST_TIMEOUT",
         message: "Image analysis took longer than 60 seconds. Try again.",
+      });
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
+export async function estimateNutrition(
+  basics: MealBasicsPayload,
+  {
+    signal,
+    timeoutMs = EXTRACTION_TIMEOUT_MS,
+  }: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<NutritionEstimateResult> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+  if (signal?.aborted) abortFromCaller();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await apiRequest<unknown>("/nutrition/estimate", {
+      method: "POST",
+      body: basics,
+      signal: controller.signal,
+      ambiguousOnNetworkError: false,
+    });
+    const parsed = estimateEnvelopeSchema.safeParse(response);
+    if (!parsed.success) {
+      throw new ApiError({
+        code: "INVALID_RESPONSE",
+        message: "The server returned an invalid nutrition estimate.",
+      });
+    }
+    return parsed.data.data;
+  } catch (error) {
+    if (
+      timedOut &&
+      error &&
+      typeof error === "object" &&
+      "name" in error &&
+      error.name === "AbortError"
+    ) {
+      throw new ApiError({
+        code: "REQUEST_TIMEOUT",
+        message: "Nutrition estimation took longer than 60 seconds. Try again.",
       });
     }
     throw error;

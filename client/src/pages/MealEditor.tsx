@@ -186,6 +186,7 @@ export function MealEditor() {
               today={profile.today}
               submitLabel={editing ? "Save meal changes" : "Save meal"}
               onSubmit={save}
+              enableNutritionEstimate={!editing}
             />
           </>
         )}

@@ -20,7 +20,8 @@ This maps every mandatory assignment outcome and quality guideline to the review
 | FR-014 | Automatically prefill extracted nutrition | Editable unsaved draft; normal meal endpoint saves confirmation | 6–7, 9.6 | 3, 8–10 | 14–16, 21–24 | T-034–038 |
 | FR-015 | API/frontend separation | React/Vite and Express separate; no client DB/provider access | 7–8, AC-013 | 1–4, 14–15 | 1, 8–9, 12, 14, 21, 24, 26 | D-001/003/005; T-038 |
 | FR-016 | Persist food entries, goals, user data | Aiven PostgreSQL; singleton profile; migrations | 7–8, AC-013/015 | 5–6, 15 | 2, 9, 17, 26 | T-022, T-039/040; D-004 |
-| FR-017 | Robust AI-powered entry | Gemini first; Grok only eligible failures; Zod; manual survives | 7, 9.6, AC-011 | 8–10, 13 | 14–20, 25–26 | T-029–036, T-041 |
+| FR-017 | Robust AI-powered entry | Gemini only (fallback requirement superseded); strict validation; manual survives | 7, 9.6, AC-011 | Historical design 8–10, 13; current scope note below | Current nutrition modules and README | T-029–032/034–041; Phase 9/10 evidence |
+| FR-019 | Approved meal-basics nutrition estimation addition | Explicit text estimate; editable unsaved prefill; manual entry/source retained | Added after Phase 10 | Current README | estimate route/adapter/service/schema and shared MealForm | Focused server/client/browser/live checks; Stage A report |
 | FR-018 | Personal app; multi-user is bonus | Mandatory single-user; no auth/account tables or ownership flow | 4–5, 7, 12 | 1–2, 14–16 | 1–2, 8–9, 21, 24 | D-002 |
 | NFR-001 | Input validation | Authoritative backend Zod; unknown micros nullable | 8–10, AC-012 | 4, 6–8, 10, 12–13 | 4, 8–10, 14, 18, 20, 23 | T-005–008, T-012, T-025–028, T-031/036/037 |
 | NFR-002 | Robust error handling and experience | Central errors; no false save success; reports refresh | 8, 10 | 3–4, 13 | 8–9, 14, 19, 22, 24–25 | T-019/020, T-032/038/044 |
@@ -31,7 +32,7 @@ This maps every mandatory assignment outcome and quality guideline to the review
 | NFR-007 | Usable browser workflows | Clear units, responsive forms, loading/empty/error states | 6, 8, 10 | 3, 11–13 | 21–24 | T-021, T-035/037/038/044; D-007 |
 | NFR-008 | Maintainable, robust data/API implementation | Shared pg.Pool, SQL migrations/transactions, complete-data reports | 8–9 | 5, 7, 11, 15 | 2, 10–13, 17, 20, 26 | T-014/015, T-039–041 |
 
-Fixed-stack coverage is explicit in HLD sections 1/5/8 and LLD sections 1/17/18/19/26: React, Vite, React Router, Recharts, useful React Hook Form/Zod, Node, Express, REST, authoritative Zod, Aiven PostgreSQL, pg, one shared pool, parameterized queries, migrations, transactions, Gemini, and Grok fallback. No stack substitution is proposed.
+Fixed-stack coverage is explicit in HLD sections 1/5/8 and LLD sections 1/17/18/19/26: React, Vite, React Router, Recharts, useful React Hook Form/Zod, Node, Express, REST, authoritative Zod, Aiven PostgreSQL, pg, one shared pool, parameterized queries, migrations, transactions, and Gemini. The former Grok fallback text in historical planning is superseded by the user-approved Gemini-only scope recorded in Phase 9 verification. No stack substitution is implemented.
 
 Bonus traceability is deliberately separate: conversational actions, multi-user authentication/private data, and PDF import remain PRD section 12 only, with no mandatory tables/endpoints/dependencies. The initial analysis's optional goal-history and account recommendations are superseded by this reviewed mandatory design.
 

@@ -4,6 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { discoverMigrations, quoteInternalIdentifier, runMigrations } from "../src/db/migration-runner.js";
 import { createDatabasePool } from "../src/db/pool.js";
 import { ProviderFailure } from "../src/modules/nutrition/nutrition.failures.js";
+import { createNutritionEstimateService } from "../src/modules/nutrition/nutrition-estimate.service.js";
+import type { NutritionEstimateAdapter } from "../src/modules/nutrition/gemini-estimate.adapter.js";
 import { createExtractionService } from "../src/modules/nutrition/nutrition.service.js";
 import type { ProviderAdapter } from "../src/modules/nutrition/provider-common.js";
 import { startServer as startSourceServer } from "../src/server.js";
@@ -13,6 +15,7 @@ import { loadDatabaseTestConfig } from "../tests-db/database-test-config.js";
 
 let startServer = startSourceServer;
 let createRuntimeExtractionService = createExtractionService;
+let createRuntimeNutritionEstimateService = createNutritionEstimateService;
 let RuntimeProviderFailure = ProviderFailure;
 if (process.env.PHASE8_COMPILED === "true") {
   const compiledServerPath = "../dist/server.js";
@@ -29,6 +32,11 @@ if (process.env.PHASE8_COMPILED === "true") {
   };
   startServer = compiledServer.startServer;
   createRuntimeExtractionService = compiledService.createExtractionService;
+  const compiledEstimateServicePath = "../dist/modules/nutrition/nutrition-estimate.service.js";
+  const compiledEstimateService = (await import(compiledEstimateServicePath)) as {
+    createNutritionEstimateService: typeof createNutritionEstimateService;
+  };
+  createRuntimeNutritionEstimateService = compiledEstimateService.createNutritionEstimateService;
   RuntimeProviderFailure = compiledFailure.ProviderFailure;
 }
 
@@ -47,6 +55,7 @@ const tables = [
 const clientOrigin = process.env.PHASE6_CLIENT_ORIGIN ?? "http://localhost:5173";
 const serverPort = process.env.PHASE6_SERVER_PORT ?? "3420";
 const usePhase10Provider = process.env.PHASE10_SIMULATED_PROVIDER === "true";
+const useStageAProvider = process.env.STAGEA_SIMULATED_PROVIDER === "true";
 const config = await loadDatabaseTestConfig();
 const basePool = await createDatabasePool(config, {
   logger: recordingLogger(),
@@ -197,6 +206,33 @@ function phase10Provider(): ProviderAdapter {
   };
 }
 
+function stageAEstimateProvider(): NutritionEstimateAdapter {
+  return {
+    async estimate({ signal }) {
+      if (signal.aborted) {
+        throw new RuntimeProviderFailure("user_cancellation", "Simulated request canceled.");
+      }
+      return {
+        status: "ok",
+        calories_kcal: 216,
+        protein_g: 5.2,
+        carbs_g: 44.8,
+        fat_g: 1.8,
+        micronutrients: {
+          sodium_mg: 10,
+          calcium_mg: null,
+          iron_mg: 1.6,
+          potassium_mg: null,
+          vitamin_c_mg: 0,
+          vitamin_d_mcg: null,
+        },
+        assumptions: ["The rice is cooked without added oil."],
+        clarification: null,
+      };
+    },
+  };
+}
+
 try {
   await basePool.query("CREATE SCHEMA " + quotedSchema);
   schemaOwned = true;
@@ -235,10 +271,18 @@ try {
             gemini: phase10Provider(),
           })
         : undefined,
+      nutritionEstimateService: useStageAProvider
+        ? createRuntimeNutritionEstimateService({
+            pool,
+            providers: config.providers,
+            clock: () => new Date("2026-09-12T10:00:00Z"),
+            gemini: stageAEstimateProvider(),
+          })
+        : undefined,
     },
   );
   console.log(
-    (usePhase10Provider ? "Phase 10" : "Phase 6") +
+    (useStageAProvider ? "Stage A" : usePhase10Provider ? "Phase 10" : "Phase 6") +
       " browser backend ready on port " +
       serverPort +
       " for origin " +

@@ -1065,6 +1065,20 @@ summary {
   margin: 1rem 0;
 }
 
+.estimate-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface-muted);
+}
+
+.estimate-panel p,
+.estimate-panel ul {
+  margin: 0;
+}
+
 .analysis-actions .status-message {
   margin: 0;
 }

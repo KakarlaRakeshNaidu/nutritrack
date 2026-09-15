@@ -4,6 +4,8 @@ import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import multer from "multer";
 
 import type { AppConfig } from "../../config/env.js";
+import { JSON_BODY_LIMIT_BYTES } from "../../config/constants.js";
+import { validateRequest } from "../../middleware/validate-request.js";
 import type { Clock, DatabasePool } from "../../types.js";
 import { AppError } from "../../utils/errors.js";
 import {
@@ -13,6 +15,13 @@ import {
 } from "./image-processing.js";
 import { ProviderFailure } from "./nutrition.failures.js";
 import { imageTypeSchema } from "./nutrition.schemas.js";
+import {
+  mealBasicsSchema,
+} from "./nutrition-estimate.schemas.js";
+import {
+  createNutritionEstimateService,
+  type NutritionEstimateService,
+} from "./nutrition-estimate.service.js";
 import {
   createExtractionService,
   type ExtractionService,
@@ -62,6 +71,7 @@ interface NutritionRouteDependencies {
   config: Pick<AppConfig, "providers">;
   clock?: Clock;
   service?: ExtractionService;
+  estimateService?: NutritionEstimateService;
   runtime?: ExtractionRuntime;
   rateMax?: number;
   rateWindowMs?: number;
@@ -139,6 +149,11 @@ export function registerNutritionRoutes(
     config,
     clock,
     service = createExtractionService({ pool, providers: config.providers, clock }),
+    estimateService = createNutritionEstimateService({
+      pool,
+      providers: config.providers,
+      clock,
+    }),
     runtime = new ExtractionRuntime(),
     rateMax = RATE_MAX,
     rateWindowMs = RATE_WINDOW_MS,
@@ -160,26 +175,29 @@ export function registerNutritionRoutes(
     },
   });
   const parseUpload = uploadOnce(upload, uploadTimeoutMs);
+  // One limiter instance and one runtime are shared by image and text work, so
+  // adding estimation cannot double the process or per-IP AI budget.
+  const aiRateLimit = rateLimit({
+    windowMs: rateWindowMs,
+    limit: rateMax,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (request) => ipKeyGenerator(request.ip ?? "unknown"),
+    handler(request, response) {
+      response.status(429).json({
+        error: {
+          code: "AI_RATE_LIMITED",
+          message: "Too many nutrition AI requests.",
+          details: [],
+          request_id: response.locals.requestId,
+        },
+      });
+    },
+  });
 
   router.post(
     "/extract",
-    rateLimit({
-      windowMs: rateWindowMs,
-      limit: rateMax,
-      standardHeaders: "draft-8",
-      legacyHeaders: false,
-      keyGenerator: (request) => ipKeyGenerator(request.ip ?? "unknown"),
-      handler(request, response) {
-        response.status(429).json({
-          error: {
-            code: "AI_RATE_LIMITED",
-            message: "Too many image extraction requests.",
-            details: [],
-            request_id: response.locals.requestId,
-          },
-        });
-      },
-    }),
+    aiRateLimit,
     async (request, response, next): Promise<void> => {
       if (!request.is("multipart/form-data")) {
         next(requestError(415, "UNSUPPORTED_MEDIA_TYPE", "Use multipart/form-data."));
@@ -274,6 +292,87 @@ export function registerNutritionRoutes(
         untrack();
         // The service/image worker has completed or acknowledged cancellation
         // before the request-owned admission lease is released exactly once.
+        release();
+      }
+    },
+  );
+
+  router.post(
+    "/estimate",
+    (request, _response, next): void => {
+      if (!request.is("application/json")) {
+        next(requestError(
+          415,
+          "UNSUPPORTED_MEDIA_TYPE",
+          "Nutrition estimation requires application/json.",
+        ));
+        return;
+      }
+      next();
+    },
+    express.json({
+      limit: JSON_BODY_LIMIT_BYTES,
+      type: ["application/json"],
+    }),
+    aiRateLimit,
+    validateRequest({ body: mealBasicsSchema }),
+    async (request, response, next): Promise<void> => {
+      if (!hasNoQuery(request)) {
+        next(requestError(
+          422,
+          "VALIDATION_ERROR",
+          "Query parameters are not allowed.",
+        ));
+        return;
+      }
+      const release = runtime.acquire();
+      if (!release) {
+        response.setHeader("Retry-After", "1");
+        next(requestError(
+          429,
+          "AI_BUSY",
+          "Nutrition AI capacity is busy.",
+        ));
+        return;
+      }
+
+      const controller = new AbortController();
+      const untrack = runtime.track(controller);
+      const onAborted = (): void => controller.abort("caller-disconnected");
+      const onClose = (): void => {
+        if (!response.writableEnded) controller.abort("caller-disconnected");
+      };
+      request.once("aborted", onAborted);
+      response.once("close", onClose);
+
+      try {
+        const result = await estimateService.estimate(
+          request.body,
+          controller.signal,
+        );
+        if (!controller.signal.aborted) response.json({ data: result });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          if (controller.signal.reason === "server-shutdown") {
+            next(requestError(
+              503,
+              "AI_PROVIDERS_UNAVAILABLE",
+              "Nutrition estimation stopped because the server is shutting down.",
+            ));
+          }
+          return;
+        }
+        if (
+          error instanceof ProviderFailure &&
+          error.kind === "user_cancellation"
+        ) {
+          return;
+        }
+        next(error);
+      } finally {
+        request.off("aborted", onAborted);
+        response.off("close", onClose);
+        untrack();
         release();
       }
     },
