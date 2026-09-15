@@ -31,14 +31,12 @@ export function Home() {
   return (
     <main className="content-shell dashboard-page">
       <section className="dashboard-hero" aria-labelledby="dashboard-title">
-        <div>
-          <p className="eyebrow">Current-week dashboard</p>
-          <h1 id="dashboard-title">Your nutrition week, in context.</h1>
-          <p className="description">
-            Review logged totals, calendar-day trends, data completeness, and
-            current targets without losing the distinction between zero and unknown.
-          </p>
-        </div>
+        <p className="eyebrow">Current-week dashboard</p>
+        <h1 id="dashboard-title">Your nutrition week, in context.</h1>
+        <p className="description">
+          Review logged totals, calendar-day trends, data completeness, and
+          current targets without losing the distinction between zero and unknown.
+        </p>
         <div className="button-row hero-actions">
           <Link className="button primary" to="/meals/new">Log meal</Link>
           <Link className="button secondary" to="/meals/from-image">Log from photo</Link>

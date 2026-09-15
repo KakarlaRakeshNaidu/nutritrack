@@ -675,10 +675,6 @@ summary {
 }
 
 .dashboard-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 2rem;
   padding: clamp(1.5rem, 5vw, 3.5rem);
   border: 1px solid var(--line);
   border-radius: 2rem;
@@ -689,11 +685,10 @@ summary {
 }
 
 .dashboard-hero h1 {
-  max-width: 14ch;
   margin: 0;
-  font-size: clamp(2.2rem, 6vw, 4.6rem);
-  line-height: 1;
-  letter-spacing: -0.05em;
+  font-size: clamp(1.8rem, 5vw, 3.6rem);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
 }
 
 .report-header h1 {
@@ -965,11 +960,6 @@ summary {
 }
 
 @media (max-width: 64rem) {
-  .dashboard-hero {
-    grid-template-columns: 1fr;
-    align-items: start;
-  }
-
   .report-control-grid,
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
