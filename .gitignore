@@ -59,3 +59,7 @@ chrome-profile/
 
 # Interview preparation notes (personal, not part of project)
 interview-prep/
+
+# Ignored output folders
+docs/
+graphify-out/
