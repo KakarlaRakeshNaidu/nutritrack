@@ -768,18 +768,3 @@ and production-preview workflows were both verified in an actual browser.
   stale-response and pending-edit protection, changed-basis review, and no
   persistence before the ordinary explicit Save meal action.
 
-## Documentation and scope
-
-Architecture, requirements, traceability, implementation records, and
-verification evidence are under `docs/`. Current completion evidence is in
-`docs/MEAL_BASICS_AI_ESTIMATION_VERIFICATION.md`,
-`docs/PHASE_11_VERIFICATION.md`, and `docs/PHASE_12_AUDIT.md`.
-
-Gemini is the only AI provider used by NutriTrack.
-
-The application intentionally includes no automatic AI save, OCR service,
-image persistence, authentication, multi-user ownership, chat, PDF import,
-export/reminders, schema reset, goal history, or weight history. Chat,
-multi-user support, and PDF import are assignment bonuses and are not claimed.
-Current goals are not historical snapshots, and target weight is a configured
-goal only because no weight measurements are recorded.
