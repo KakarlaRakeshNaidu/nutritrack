@@ -18,6 +18,7 @@ import {
 import { ExtractionRuntime } from "./modules/nutrition/nutrition.routes.js";
 import type { ExtractionService } from "./modules/nutrition/nutrition.service.js";
 import type { NutritionEstimateService } from "./modules/nutrition/nutrition-estimate.service.js";
+import type { AuthIdentity } from "./modules/auth/auth.service.js";
 import type { Clock, DatabaseExecutor, DatabasePool, Logger } from "./types.js";
 
 interface ServerDependencies {
@@ -30,6 +31,7 @@ interface ServerDependencies {
   clock?: Clock;
   extractionService?: ExtractionService;
   nutritionEstimateService?: NutritionEstimateService;
+  testAuthIdentity?: AuthIdentity;
 }
 
 export interface RunningServer {
@@ -102,6 +104,7 @@ export async function startServer(
     clock,
     extractionService,
     nutritionEstimateService,
+    testAuthIdentity,
   }: ServerDependencies = {},
 ): Promise<RunningServer> {
   // Environment parsing happens only at process startup. Importing app.js stays
@@ -142,6 +145,7 @@ export async function startServer(
     logger,
     extractionService,
     nutritionEstimateService,
+    testAuthIdentity,
   });
   const server = app.listen(config.PORT);
 

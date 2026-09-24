@@ -69,6 +69,7 @@ const request = {
   declaredMime: "image/jpeg",
   imageType: "food_plate" as const,
   signal: new AbortController().signal,
+  userId: "00000000-0000-4000-8000-000000000099",
 };
 
 test("Gemini success performs only the profile read", async () => {
@@ -77,7 +78,7 @@ test("Gemini success performs only the profile read", async () => {
   });
   const result = await extraction.extract(request);
   assert.equal(result.provider, "gemini");
-  assert.deepEqual(queries, ["profile-read-singleton"]);
+  assert.deepEqual(queries, ["profile-read-by-user"]);
 });
 
 for (const kind of ["unavailable", "output_invalid"] as const) {

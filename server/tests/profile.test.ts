@@ -53,8 +53,45 @@ test("profile returns persisted identity and timezone-derived date context", asy
     },
   });
   assert.equal(harness.calls.length, 1);
-  assert.deepEqual(harness.calls[0].values, [1]);
-  assert.match(harness.calls[0].text, /WHERE id = \$1/);
+  assert.deepEqual(harness.calls[0].values, ["00000000-0000-4000-8000-000000000099"]);
+  assert.match(harness.calls[0].text, /WHERE user_id = \$1/);
+});
+
+test("profile name update is trimmed, user-scoped, and returns refreshed context", async () => {
+  const harness = createProfileHarness({
+    rowCount: 1,
+    rows: [{ display_name: "Rakesh Naidu", timezone: "Asia/Kolkata" }],
+  });
+  const response = await request(harness.app)
+    .put("/api/v1/profile")
+    .send({ display_name: "  Rakesh Naidu  " });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.data.display_name, "Rakesh Naidu");
+  assert.equal(response.body.data.timezone, "Asia/Kolkata");
+  assert.equal(harness.calls.length, 1);
+  assert.match(harness.calls[0].text, /UPDATE tracker_profile/);
+  assert.match(harness.calls[0].text, /WHERE user_id = \$1/);
+  assert.deepEqual(harness.calls[0].values, [
+    "00000000-0000-4000-8000-000000000099",
+    "Rakesh Naidu",
+  ]);
+});
+
+test("profile name update rejects blank and unexpected fields before database access", async () => {
+  for (const body of [
+    { display_name: "   " },
+    { display_name: "Valid name", timezone: "UTC" },
+  ]) {
+    const harness = createProfileHarness({
+      rowCount: 1,
+      rows: [{ display_name: "Original", timezone: "UTC" }],
+    });
+    const response = await request(harness.app).put("/api/v1/profile").send(body);
+    assert.equal(response.status, 422);
+    assert.equal(response.body.error.code, "VALIDATION_ERROR");
+    assert.equal(harness.calls.length, 0);
+  }
 });
 
 test("profile rejects every unexpected query key before database access", async () => {

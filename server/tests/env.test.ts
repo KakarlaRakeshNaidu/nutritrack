@@ -94,6 +94,7 @@ test("missing required core settings fail with field names but no values", () =>
       assert.deepEqual(error.fields, [
         "CLIENT_ORIGIN",
         "DATABASE_URL",
+        "JWT_SECRET",
         "PG_CA_CERT_PATH",
       ]);
       assert.equal(error.message.includes(sentinel), false);

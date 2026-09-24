@@ -90,14 +90,15 @@ test("insert parameterizes every submitted value without rescaling totals", asyn
     },
   };
   const input = mealInput();
-  const result = await insertMeal(executor, input);
+  const result = await insertMeal(executor, input, "00000000-0000-4000-8000-000000000099");
 
   assert.equal(result.calories_kcal, 180);
   assert(call);
   assert(call.values);
-  assert.equal(call.values[0], input.food_name);
-  assert.equal(call.values[3], 150);
-  assert.equal(call.values[5], 180);
+  assert.equal(call.values[0], "00000000-0000-4000-8000-000000000099");
+  assert.equal(call.values[1], input.food_name);
+  assert.equal(call.values[4], 150);
+  assert.equal(call.values[6], 180);
   assert.equal(call.text.includes(input.food_name), false);
   assert.match(call.text, /VALUES \(\$1, \$2/);
 });
@@ -116,19 +117,20 @@ test("find, full replacement, and delete use one atomic parameterized statement"
     },
   };
 
-  await findMealById(executor, ID);
-  await replaceMeal(executor, ID, mealInput({ consumed_quantity: 300 }));
-  assert.equal(await deleteMealById(executor, ID), true);
-  assert.equal(await deleteMealById(executor, ID), false);
+  await findMealById(executor, ID, "00000000-0000-4000-8000-000000000099");
+  await replaceMeal(executor, ID, mealInput({ consumed_quantity: 300 }), "00000000-0000-4000-8000-000000000099");
+  assert.equal(await deleteMealById(executor, ID, "00000000-0000-4000-8000-000000000099"), true);
+  assert.equal(await deleteMealById(executor, ID, "00000000-0000-4000-8000-000000000099"), false);
 
   assert(calls[0].values);
   assert(calls[1].values);
-  assert.deepEqual(calls[0].values, [ID]);
+  assert.deepEqual(calls[0].values, [ID, "00000000-0000-4000-8000-000000000099"]);
   assert.match(calls[1].text, /updated_at = now\(\).*WHERE id = \$18/);
   assert.equal(calls[1].values[3], 300);
   assert.equal(calls[1].values[5], 180);
   assert.equal(calls[1].values[17], ID);
-  assert.match(calls[2].text, /DELETE FROM meals WHERE id = \$1 RETURNING id/);
+  assert.equal(calls[1].values[18], "00000000-0000-4000-8000-000000000099");
+  assert.match(calls[2].text, /DELETE FROM meals WHERE id = \$1 AND user_id = \$2 RETURNING id/);
 });
 
 test("one parameterized filter sequence drives count and deterministic page SQL", async () => {
@@ -148,7 +150,7 @@ test("one parameterized filter sequence drives count and deterministic page SQL"
     start_date: "2026-09-01",
     end_date: "2026-09-12",
     meal_type: "dinner",
-  });
+  }, "00000000-0000-4000-8000-000000000099");
 
   assert.equal(await countMeals(executor, filter), "25");
   const rows = await findMealsPage(executor, filter, {
@@ -159,16 +161,18 @@ test("one parameterized filter sequence drives count and deterministic page SQL"
   assert.equal(rows.length, 1);
   assert.equal(
     filter.clause,
-    "WHERE consumption_date >= $1 AND consumption_date <= $2 AND meal_type = $3",
+    "WHERE user_id = $1 AND consumption_date >= $2 AND consumption_date <= $3 AND meal_type = $4",
   );
   assert(calls[0].values);
   assert(calls[1].values);
   assert.deepEqual(calls[0].values, [
+    "00000000-0000-4000-8000-000000000099",
     "2026-09-01",
     "2026-09-12",
     "dinner",
   ]);
   assert.deepEqual(calls[1].values, [
+    "00000000-0000-4000-8000-000000000099",
     "2026-09-01",
     "2026-09-12",
     "dinner",
@@ -177,6 +181,6 @@ test("one parameterized filter sequence drives count and deterministic page SQL"
   ]);
   assert.match(
     calls[1].text,
-    /ORDER BY consumption_date DESC, created_at DESC, id DESC LIMIT \$4 OFFSET \$5/,
+    /ORDER BY consumption_date DESC, created_at DESC, id DESC LIMIT \$5 OFFSET \$6/,
   );
 });

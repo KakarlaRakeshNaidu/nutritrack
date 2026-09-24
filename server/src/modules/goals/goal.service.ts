@@ -9,16 +9,17 @@ import {
 } from "./goal.repository.js";
 
 interface GoalRepository {
-  findSingletonGoals(executor: DatabaseExecutor): Promise<Goal | null>;
+  findSingletonGoals(executor: DatabaseExecutor, userId: string): Promise<Goal | null>;
   replaceSingletonGoals(
     executor: DatabaseExecutor,
     goals: GoalInput,
+    userId: string,
   ): Promise<Goal | null>;
 }
 
 export interface GoalService {
-  getGoals(): Promise<Goal>;
-  replaceGoals(goals: GoalInput): Promise<Goal>;
+  getGoals(userId: string): Promise<Goal>;
+  replaceGoals(goals: GoalInput, userId: string): Promise<Goal>;
 }
 
 interface GoalServiceDependencies {
@@ -52,9 +53,9 @@ export function createGoalService(
   }: GoalServiceDependencies,
 ): GoalService {
   return {
-    async getGoals() {
+    async getGoals(userId) {
       const goals = await databaseOperation(() =>
-        repository.findSingletonGoals(pool),
+        repository.findSingletonGoals(pool, userId),
       );
       if (!goals) {
         throw missingGoalSingleton();
@@ -62,9 +63,9 @@ export function createGoalService(
       return goals;
     },
 
-    async replaceGoals(goals: GoalInput) {
+    async replaceGoals(goals: GoalInput, userId: string) {
       const replaced = await databaseOperation(() =>
-        repository.replaceSingletonGoals(pool, goals),
+        repository.replaceSingletonGoals(pool, goals, userId),
       );
       if (!replaced) {
         throw missingGoalSingleton();

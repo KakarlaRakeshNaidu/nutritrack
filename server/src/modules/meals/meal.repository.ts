@@ -163,19 +163,20 @@ function writableValues(meal: MealInput): unknown[] {
 export async function insertMeal(
   executor: DatabaseExecutor,
   meal: MealInput,
+  userId: string,
 ): Promise<Meal> {
   const placeholders = WRITABLE_COLUMNS.map(
-    (_column, index) => "$" + (index + 1),
+    (_column, index) => "$" + (index + 2),
   ).join(", ");
   const result = await executor.query({
     text:
       "INSERT INTO meals (" +
-      WRITABLE_COLUMNS.join(", ") +
-      ") VALUES (" +
+      "user_id, " + WRITABLE_COLUMNS.join(", ") +
+      ") VALUES ($1, " +
       placeholders +
       ") RETURNING " +
       MEAL_COLUMNS,
-    values: writableValues(meal),
+    values: [userId, ...writableValues(meal)],
   });
 
   return requiredMealRow(result.rows[0]);
@@ -184,10 +185,11 @@ export async function insertMeal(
 export async function findMealById(
   executor: DatabaseExecutor,
   id: string,
+  userId: string,
 ): Promise<Meal | null> {
   const result = await executor.query({
-    text: "SELECT " + MEAL_COLUMNS + " FROM meals WHERE id = $1",
-    values: [id],
+    text: "SELECT " + MEAL_COLUMNS + " FROM meals WHERE id = $1 AND user_id = $2",
+    values: [id, userId],
   });
 
   return mapMealRow(result.rows[0]);
@@ -197,16 +199,19 @@ export async function replaceMeal(
   executor: DatabaseExecutor,
   id: string,
   meal: MealInput,
+  userId: string,
 ): Promise<Meal | null> {
   const assignments = WRITABLE_COLUMNS.map(
     (column, index) => column + " = $" + (index + 1),
   ).join(", ");
-  const values = [...writableValues(meal), id];
+  const values = [...writableValues(meal), id, userId];
   const result = await executor.query({
     text:
       "UPDATE meals SET " +
       assignments +
       ", updated_at = now() WHERE id = $" +
+      (values.length - 1) +
+      " AND user_id = $" +
       values.length +
       " RETURNING " +
       MEAL_COLUMNS,
@@ -219,10 +224,11 @@ export async function replaceMeal(
 export async function deleteMealById(
   executor: DatabaseExecutor,
   id: string,
+  userId: string,
 ): Promise<boolean> {
   const result = await executor.query({
-    text: "DELETE FROM meals WHERE id = $1 RETURNING id",
-    values: [id],
+    text: "DELETE FROM meals WHERE id = $1 AND user_id = $2 RETURNING id",
+    values: [id, userId],
   });
 
   return result.rowCount === 1;
@@ -230,9 +236,10 @@ export async function deleteMealById(
 
 export function createMealFilter(
   { start_date, end_date, meal_type }: MealFilterInput,
+  userId: string,
 ): MealFilter {
-  const clauses: string[] = [];
-  const values: unknown[] = [];
+  const clauses: string[] = ["user_id = $1"];
+  const values: unknown[] = [userId];
 
   function addFilter(column: string, operator: string, value: unknown): void {
     if (value === undefined) {
@@ -249,7 +256,7 @@ export function createMealFilter(
   // Count and page queries receive this same immutable clause/value sequence,
   // ensuring filters cannot drift between metadata and returned rows.
   return Object.freeze({
-    clause: clauses.length > 0 ? "WHERE " + clauses.join(" AND ") : "",
+    clause: "WHERE " + clauses.join(" AND "),
     values: Object.freeze(values),
   });
 }

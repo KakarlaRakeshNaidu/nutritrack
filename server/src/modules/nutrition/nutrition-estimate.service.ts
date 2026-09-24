@@ -20,6 +20,7 @@ export interface NutritionEstimateService {
   estimate(
     basics: MealBasicsInput,
     signal: AbortSignal,
+    userId: string,
   ): Promise<EstimateResult>;
 }
 
@@ -73,10 +74,10 @@ export function createNutritionEstimateService({
   const profileService = createProfileService({ pool, clock });
 
   return {
-    async estimate(basics, signal) {
+    async estimate(basics, signal, userId) {
       // Resolve the persisted timezone before provider work without holding a
       // transaction or database connection during the external request.
-      const { today } = await profileService.getProfile();
+      const { today } = await profileService.getProfile(userId);
       if (!isConsumptionDateAllowed(basics.consumption_date, today)) {
         throw new AppError({
           status: 422,

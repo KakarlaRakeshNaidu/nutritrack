@@ -249,14 +249,14 @@ test("estimate service enforces profile today, reads only profile, and maps fail
     gemini: { estimate: async () => output },
   });
   assert.deepEqual(
-    await service.estimate(basics, new AbortController().signal),
+    await service.estimate(basics, new AbortController().signal, "00000000-0000-4000-8000-000000000099"),
     result,
   );
-  assert.deepEqual(queries, ["profile-read-singleton"]);
+  assert.deepEqual(queries, ["profile-read-by-user"]);
   await assert.rejects(
     service.estimate(
       { ...basics, consumption_date: "2026-09-15" },
-      new AbortController().signal,
+      new AbortController().signal, "00000000-0000-4000-8000-000000000099"
     ),
     (error: unknown) =>
       Boolean(
@@ -278,7 +278,7 @@ test("estimate service enforces profile today, reads only profile, and maps fail
     },
   });
   await assert.rejects(
-    unavailable.estimate(basics, new AbortController().signal),
+    unavailable.estimate(basics, new AbortController().signal, "00000000-0000-4000-8000-000000000099"),
     (error: unknown) =>
       Boolean(
         error &&

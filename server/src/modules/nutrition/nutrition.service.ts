@@ -21,6 +21,7 @@ export interface ExtractionService {
     declaredMime: string;
     imageType: ImageType;
     signal: AbortSignal;
+    userId: string;
   }): Promise<ExtractionResult>;
 }
 
@@ -96,7 +97,7 @@ export function createExtractionService({
   const profileService = createProfileService({ pool, clock });
 
   return {
-    async extract({ image, declaredMime, imageType, signal }) {
+    async extract({ image, declaredMime, imageType, signal, userId }) {
       const startedAt = now();
       const normalized = await normalize(image, declaredMime, signal);
       const remainingBeforePrimary = OVERALL_TIMEOUT_MS - (now() - startedAt);
@@ -115,7 +116,7 @@ export function createExtractionService({
           signal,
           timeoutMs: Math.min(PROVIDER_TIMEOUT_MS, remainingBeforePrimary),
         });
-        const profile = await profileService.getProfile();
+        const profile = await profileService.getProfile(userId);
         return buildExtractionResult({
           provider: "gemini",
           imageType,

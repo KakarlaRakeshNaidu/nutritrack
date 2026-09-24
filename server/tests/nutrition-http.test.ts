@@ -237,7 +237,7 @@ test("runtime shutdown cancels active extraction, responds safely, and releases 
 test("missing AI configuration is isolated from existing manual APIs", async () => {
   const pool = databasePoolStub(async (query) => {
     const name = typeof query === "string" ? query : query.name;
-    if (name === "profile-read-singleton") {
+    if (name === "profile-read-by-user") {
       return {
         rowCount: 1,
         rows: [{ display_name: "Tester", timezone: "UTC" }],

@@ -62,12 +62,12 @@ test("singleton read uses only the fixed parameterized identifier", async () => 
     },
   };
 
-  const goals = await findSingletonGoals(executor);
+  const goals = await findSingletonGoals(executor, "00000000-0000-4000-8000-000000000099");
   assert(goals);
   assert(call);
   assert.equal(goals.daily_protein_g, 0);
-  assert.deepEqual(call.values, [1]);
-  assert.match(call.text, /FROM goals WHERE id = \$1/);
+  assert.deepEqual(call.values, ["00000000-0000-4000-8000-000000000099"]);
+  assert.match(call.text, /FROM goals WHERE user_id = \$1/);
   assert.doesNotMatch(call.text, /created_at|SELECT id/);
 });
 
@@ -82,7 +82,7 @@ test("replacement is one atomic parameterized update with no upsert or precheck"
   };
   const input = goalInput();
 
-  await replaceSingletonGoals(executor, input);
+  await replaceSingletonGoals(executor, input, "00000000-0000-4000-8000-000000000099");
 
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].values, [
@@ -91,10 +91,10 @@ test("replacement is one atomic parameterized update with no upsert or precheck"
     250.5,
     null,
     72.3456,
-    1,
+    "00000000-0000-4000-8000-000000000099",
   ]);
   assert.match(calls[0].text, /^UPDATE goals SET/);
-  assert.match(calls[0].text, /updated_at = now\(\) WHERE id = \$6 RETURNING/);
+  assert.match(calls[0].text, /updated_at = now\(\) WHERE user_id = \$6 RETURNING/);
   assert.doesNotMatch(calls[0].text, /INSERT|ON CONFLICT|BEGIN/i);
 });
 
@@ -104,6 +104,6 @@ test("missing singleton rows map to null without inserting a replacement", async
       return { rowCount: 0, rows: [] };
     },
   };
-  assert.equal(await findSingletonGoals(executor), null);
-  assert.equal(await replaceSingletonGoals(executor, goalInput()), null);
+  assert.equal(await findSingletonGoals(executor, "00000000-0000-4000-8000-000000000099"), null);
+  assert.equal(await replaceSingletonGoals(executor, goalInput(), "00000000-0000-4000-8000-000000000099"), null);
 });

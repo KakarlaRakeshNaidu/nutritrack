@@ -1,4 +1,6 @@
 import { Link, NavLink, Outlet, Route, Routes } from "react-router-dom";
+import { useAuth } from "./auth/AuthContext";
+import { RequireAuth } from "./auth/RequireAuth";
 
 import { Goals } from "./pages/Goals";
 import { Home } from "./pages/Home";
@@ -7,8 +9,11 @@ import { MealFromImage } from "./pages/MealFromImage";
 import { MealHistory } from "./pages/MealHistory";
 import { NotFound } from "./pages/NotFound";
 import { Reports } from "./pages/Reports";
+import { Profile } from "./pages/Profile";
+import { AuthPage } from "./pages/AuthPage";
 
 function AppLayout() {
+  const { user, displayName } = useAuth();
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -28,6 +33,9 @@ function AppLayout() {
           <NavLink to="/meals">Meals</NavLink>
           <NavLink to="/goals">Goals</NavLink>
           <NavLink to="/reports">Reports</NavLink>
+          <NavLink className="nav-user" to="/profile" title={displayName ?? user?.email}>
+            {displayName ?? user?.email}
+          </NavLink>
         </nav>
       </header>
       <div id="main-content">
@@ -43,7 +51,10 @@ function AppLayout() {
 export function App() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
+      <Route path="login" element={<AuthPage mode="login" />} />
+      <Route path="signup" element={<AuthPage mode="signup" />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<AppLayout />}>
         <Route index element={<Home />} />
         <Route path="meals" element={<MealHistory />} />
         <Route path="meals/new" element={<MealEditor />} />
@@ -51,7 +62,9 @@ export function App() {
         <Route path="meals/:id/edit" element={<MealEditor />} />
         <Route path="goals" element={<Goals />} />
         <Route path="reports" element={<Reports />} />
-        <Route path="*" element={<NotFound />} />
+        <Route path="profile" element={<Profile />} />
+          <Route path="*" element={<NotFound />} />
+        </Route>
       </Route>
     </Routes>
   );

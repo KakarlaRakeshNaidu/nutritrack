@@ -47,10 +47,10 @@ export function mapGoalRow(row: GoalRow | null | undefined): Goal | null {
   };
 }
 
-export async function findSingletonGoals(executor: DatabaseExecutor): Promise<Goal | null> {
+export async function findSingletonGoals(executor: DatabaseExecutor, userId: string): Promise<Goal | null> {
   const result = await executor.query({
-    text: "SELECT " + GOAL_COLUMNS + " FROM goals WHERE id = $1",
-    values: [1],
+    text: "SELECT " + GOAL_COLUMNS + " FROM goals WHERE user_id = $1",
+    values: [userId],
   });
 
   return mapGoalRow(result.rows[0]);
@@ -59,6 +59,7 @@ export async function findSingletonGoals(executor: DatabaseExecutor): Promise<Go
 export async function replaceSingletonGoals(
   executor: DatabaseExecutor,
   goals: GoalInput,
+  userId: string,
 ): Promise<Goal | null> {
   const values = [
     goals.daily_calories_kcal,
@@ -66,13 +67,13 @@ export async function replaceSingletonGoals(
     goals.daily_carbs_g,
     goals.daily_fat_g,
     goals.target_weight_kg,
-    1,
+    userId,
   ];
   const result = await executor.query({
     text:
       "UPDATE goals SET daily_calories_kcal = $1, daily_protein_g = $2, " +
       "daily_carbs_g = $3, daily_fat_g = $4, target_weight_kg = $5, " +
-      "updated_at = now() WHERE id = $6 RETURNING " +
+      "updated_at = now() WHERE user_id = $6 RETURNING " +
       GOAL_COLUMNS,
     values,
   });

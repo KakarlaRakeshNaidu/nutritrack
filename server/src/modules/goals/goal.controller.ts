@@ -5,13 +5,14 @@ import type { GoalService } from "./goal.service.js";
 export function createGoalController(goalService: GoalService) {
   return {
     async getGoals(_request: Request, response: Response): Promise<void> {
-      const goals = await goalService.getGoals();
+      const goals = await goalService.getGoals(response.locals.auth.userId);
       response.json({ data: goals });
     },
 
     async replaceGoals(_request: Request, response: Response): Promise<void> {
       const goals = await goalService.replaceGoals(
         response.locals.validated.body,
+        response.locals.auth.userId,
       );
       response.json({ data: goals });
     },

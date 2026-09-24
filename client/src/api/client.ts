@@ -107,6 +107,7 @@ export async function apiRequest<ResponseBody = unknown>(
   const requestOptions: RequestInit = {
     method,
     signal,
+    credentials: "include",
     headers:
       hasBody && !multipart ? { "Content-Type": "application/json" } : undefined,
     // FormData must reach fetch unchanged so the browser creates the boundary.
@@ -131,6 +132,10 @@ export async function apiRequest<ResponseBody = unknown>(
           ? "Could not reach the server. Check your connection and try again."
           : "Could not confirm the save. Check history before submitting again.",
     });
+  }
+
+  if (response.status === 401) {
+    window.dispatchEvent(new Event("nutritrack:unauthorized"));
   }
 
   if (response.status === 204) {

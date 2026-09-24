@@ -3,7 +3,6 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
-docs/
 
 # Runtime output
 *.log
@@ -61,6 +60,8 @@ chrome-profile/
 interview-prep/
 
 # Ignored output folders
-docs/
+docs/*
+!docs/MULTI_USER_VERIFICATION.md
+!docs/MULTI_USER_ROLLOUT.md
 graphify-out/
 .agents/

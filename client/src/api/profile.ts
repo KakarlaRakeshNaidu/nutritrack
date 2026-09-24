@@ -7,3 +7,11 @@ export async function getProfile(
   const response = await apiRequest<{ data: Profile }>("/profile", { signal });
   return response.data;
 }
+
+export async function updateProfileDisplayName(displayName: string): Promise<Profile> {
+  const response = await apiRequest<{ data: Profile }>("/profile", {
+    method: "PUT",
+    body: { display_name: displayName },
+  });
+  return response.data;
+}

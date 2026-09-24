@@ -9,6 +9,10 @@ export type ProviderState =
   | { status: "configuration_error"; fields: string[] }
   | { status: "configured"; apiKey: string; model: string };
 
+export type MailConfig =
+  | { status: "disabled" }
+  | { status: "configured"; host: string; port: number; secure: boolean; user: string; password: string; from: string };
+
 export interface AppConfig {
   PORT: number;
   NODE_ENV: (typeof NODE_ENV_VALUES)[number];
@@ -16,6 +20,9 @@ export interface AppConfig {
   TRUST_PROXY_HOPS: number;
   DATABASE_URL: string;
   PG_CA_CERT_PATH: string;
+  JWT_SECRET: string;
+  SESSION_TTL_HOURS: number;
+  mail: MailConfig;
   providers: Record<"gemini", ProviderState>;
 }
 
@@ -124,6 +131,12 @@ const coreEnvironmentSchema = z.strictObject({
   }),
   DATABASE_URL: databaseUrlSchema,
   PG_CA_CERT_PATH: z.string().trim().min(1),
+  JWT_SECRET: z.string().min(32),
+  SESSION_TTL_HOURS: integerEnvironmentValue({
+    defaultValue: 24,
+    minimum: 1,
+    maximum: 720,
+  }),
 });
 
 export class EnvironmentValidationError extends Error {
@@ -168,6 +181,31 @@ function evaluateProviderPair(
   };
 }
 
+function evaluateMail(source: EnvironmentSource): MailConfig {
+  const names = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"] as const;
+  if (names.every((name) => source[name] === undefined)) return { status: "disabled" };
+  const values = names.map((name) => source[name]);
+  if (values.some((value) => typeof value !== "string" || value.trim() === "")) {
+    throw new EnvironmentValidationError(names.filter((name) => {
+      const value = source[name];
+      return typeof value !== "string" || value.trim() === "";
+    }));
+  }
+  const port = Number(source.SMTP_PORT);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new EnvironmentValidationError(["SMTP_PORT"]);
+  }
+  return {
+    status: "configured",
+    host: String(source.SMTP_HOST).trim(),
+    port,
+    secure: port === 465,
+    user: String(source.SMTP_USER).trim(),
+    password: String(source.SMTP_PASSWORD),
+    from: String(source.SMTP_FROM).trim(),
+  };
+}
+
 export function loadEnv(source: EnvironmentSource = process.env): AppConfig {
   // Selecting only intended keys allows process.env to contain ordinary OS and
   // shell variables while retaining strict validation of application config.
@@ -178,6 +216,8 @@ export function loadEnv(source: EnvironmentSource = process.env): AppConfig {
     TRUST_PROXY_HOPS: source.TRUST_PROXY_HOPS,
     DATABASE_URL: source.DATABASE_URL,
     PG_CA_CERT_PATH: source.PG_CA_CERT_PATH,
+    JWT_SECRET: source.JWT_SECRET,
+    SESSION_TTL_HOURS: source.SESSION_TTL_HOURS,
   });
 
   if (!result.success) {
@@ -189,6 +229,7 @@ export function loadEnv(source: EnvironmentSource = process.env): AppConfig {
 
   return {
     ...result.data,
+    mail: evaluateMail(source),
     providers: {
       gemini: evaluateProviderPair(source, "GEMINI_API_KEY", "GEMINI_MODEL"),
     },

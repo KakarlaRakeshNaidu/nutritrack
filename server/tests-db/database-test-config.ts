@@ -42,5 +42,10 @@ export async function loadDatabaseTestConfig({
 
   // Parse the selected file directly so inherited shell variables cannot
   // silently redirect destructive integration work to another database.
-  return loadApplicationEnvironment(parseEnvironment(contents));
+  const parsed = parseEnvironment(contents);
+  return loadApplicationEnvironment({
+    ...parsed,
+    NODE_ENV: "test",
+    JWT_SECRET: parsed.JWT_SECRET ?? "test-only-database-secret-with-at-least-32-characters",
+  });
 }

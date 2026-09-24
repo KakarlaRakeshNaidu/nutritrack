@@ -19,14 +19,14 @@ test("daily report aggregation is one bounded parameterized query without raw me
     await aggregateNutritionByDate(executor, {
       startDate: "2026-09-01",
       endDate: "2026-09-12",
-    }),
+    }, "00000000-0000-4000-8000-000000000099"),
     rows,
   );
   assert(call);
-  assert.deepEqual(call.values, ["2026-09-01", "2026-09-12"]);
+  assert.deepEqual(call.values, ["00000000-0000-4000-8000-000000000099", "2026-09-01", "2026-09-12"]);
   assert.match(
     call.text,
-    /WHERE consumption_date >= \$1 AND consumption_date <= \$2/,
+    /WHERE user_id = \$1 AND consumption_date >= \$2 AND consumption_date <= \$3/,
   );
   assert.match(call.text, /GROUP BY consumption_date/);
   assert.match(call.text, /sum\(sodium_mg\).*count\(sodium_mg\)/s);

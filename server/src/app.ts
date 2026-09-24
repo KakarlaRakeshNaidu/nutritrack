@@ -11,6 +11,8 @@ import {
 } from "./config/constants.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFound } from "./middleware/not-found.js";
+import { csrfOriginGuard, registerAuthRoutes, requireAuthentication } from "./modules/auth/auth.routes.js";
+import type { AuthIdentity } from "./modules/auth/auth.service.js";
 import { requestId } from "./middleware/request-id.js";
 import {
   enforceGoalBodyContract,
@@ -40,9 +42,10 @@ interface CreateAppOptions {
   nutritionEstimateService?: NutritionEstimateService;
   extractionRuntime?: ExtractionRuntime;
   extractionUploadTimeoutMs?: number;
+  testAuthIdentity?: AuthIdentity;
 }
 
-type HttpConfig = Pick<AppConfig, "TRUST_PROXY_HOPS" | "CLIENT_ORIGIN" | "providers">;
+type HttpConfig = AppConfig;
 
 
 function corsOptions(clientOrigin: string): CorsOptions {
@@ -53,7 +56,7 @@ function corsOptions(clientOrigin: string): CorsOptions {
     methods: CORS_METHODS,
     allowedHeaders: ["Content-Type"],
     exposedHeaders: ["X-Request-ID"],
-    credentials: false,
+    credentials: true,
     optionsSuccessStatus: 204,
   };
 }
@@ -69,6 +72,7 @@ export function createApp(
     nutritionEstimateService,
     extractionRuntime,
     extractionUploadTimeoutMs,
+    testAuthIdentity,
   }: CreateAppOptions = {},
 ): Express {
   const app = express();
@@ -83,6 +87,35 @@ export function createApp(
   app.use(cors(corsOptions(config.CLIENT_ORIGIN)));
 
   if (pool) {
+    const protectedPaths = [
+      "/api/v1/profile",
+      "/api/v1/goals",
+      "/api/v1/meals",
+      "/api/v1/reports",
+      "/api/v1/nutrition",
+    ];
+    if (config.NODE_ENV === "test" && testAuthIdentity) {
+      app.use(protectedPaths, (_request, response, next) => {
+        response.locals.auth = testAuthIdentity;
+        next();
+      });
+    } else if (config.JWT_SECRET) {
+      const authService = registerAuthRoutes(app, { pool, config, logger });
+      app.use(protectedPaths, csrfOriginGuard(config.CLIENT_ORIGIN));
+      app.use(protectedPaths, requireAuthentication(authService));
+    } else if (config.NODE_ENV === "test") {
+      // Existing unit fixtures bypass JWT setup with one isolated synthetic
+      // identity; loadEnv makes this path unavailable in a real runtime.
+      app.use(protectedPaths, (_request, response, next) => {
+        response.locals.auth = {
+          userId: "00000000-0000-4000-8000-000000000099",
+          email: "test-user@example.com",
+          sessionId: "00000000-0000-4000-8000-000000000098",
+        };
+        next();
+      });
+    }
+
     // Meal routes own a stricter parser and must see the request stream before
     // the broader API parser consumes it.
     app.locals.extractionRuntime = registerNutritionRoutes(app, {

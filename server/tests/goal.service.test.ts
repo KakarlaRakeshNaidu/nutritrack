@@ -65,8 +65,8 @@ test("goal service reads and fully replaces through the supplied shared pool", a
     target_weight_kg: null,
   };
 
-  assert.equal((await instance.service.getGoals()).daily_protein_g, 0);
-  assert.deepEqual(await instance.service.replaceGoals(input), {
+  assert.equal((await instance.service.getGoals("00000000-0000-4000-8000-000000000099")).daily_protein_g, 0);
+  assert.deepEqual(await instance.service.replaceGoals(input, "00000000-0000-4000-8000-000000000099"), {
     ...input,
     updated_at: goalData().updated_at,
   });
@@ -85,7 +85,7 @@ test("a missing migrated singleton fails safely for both reads and writes", asyn
     },
   });
   await assert.rejects(
-    instance.service.getGoals(),
+    instance.service.getGoals("00000000-0000-4000-8000-000000000099"),
     (error) => {
       assert(error instanceof AppError);
       return (
@@ -96,7 +96,7 @@ test("a missing migrated singleton fails safely for both reads and writes", asyn
     },
   );
   await assert.rejects(
-    instance.service.replaceGoals(EMPTY_GOALS),
+    instance.service.replaceGoals(EMPTY_GOALS, "00000000-0000-4000-8000-000000000099"),
     (error) => {
       assert(error instanceof AppError);
       return error.status === 500 && error.code === "INTERNAL_ERROR";
@@ -115,7 +115,7 @@ test("known database outages map to 503 and unexpected failures remain internal"
       },
     });
     await assert.rejects(
-      instance.service.getGoals(),
+      instance.service.getGoals("00000000-0000-4000-8000-000000000099"),
       (error) => {
         assert(error instanceof AppError);
         return error.status === 503 && error.code === expected;
@@ -129,7 +129,7 @@ test("known database outages map to 503 and unexpected failures remain internal"
     },
   });
   await assert.rejects(
-    unexpected.service.replaceGoals(EMPTY_GOALS),
+    unexpected.service.replaceGoals(EMPTY_GOALS, "00000000-0000-4000-8000-000000000099"),
     /private SQL detail/,
   );
 });

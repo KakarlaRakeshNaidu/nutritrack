@@ -117,7 +117,7 @@ test("service uses one read-only snapshot and paginates complete day buckets", a
       end_date: "2026-09-13",
       page: "2",
       page_size: "2",
-    }),
+    }), "00000000-0000-4000-8000-000000000099"
   );
 
   assert.deepEqual(response.pagination, {
@@ -163,13 +163,13 @@ test("summary and comparison stay full-range across grouping and out-of-range pa
     end_date: "2026-09-13",
   };
   const day = await instance.service.getNutritionReport(
-    reportQuerySchema.parse({ ...common, page_size: "2" }),
+    reportQuerySchema.parse({ ...common, page_size: "2" }), "00000000-0000-4000-8000-000000000099"
   );
   const week = await instance.service.getNutritionReport(
-    reportQuerySchema.parse({ ...common, group_by: "week" }),
+    reportQuerySchema.parse({ ...common, group_by: "week" }), "00000000-0000-4000-8000-000000000099"
   );
   const emptyPage = await instance.service.getNutritionReport(
-    reportQuerySchema.parse({ ...common, page: "99", page_size: "2" }),
+    reportQuerySchema.parse({ ...common, page: "99", page_size: "2" }), "00000000-0000-4000-8000-000000000099"
   );
 
   assert.deepEqual(week.summary, day.summary);
@@ -183,7 +183,7 @@ test("summary and comparison stay full-range across grouping and out-of-range pa
 test("default range is the persisted timezone's Monday through Sunday", async () => {
   const instance = harness();
   const response = await instance.service.getNutritionReport(
-    reportQuerySchema.parse({}),
+    reportQuerySchema.parse({}), "00000000-0000-4000-8000-000000000099"
   );
   assert.deepEqual(response.range, {
     start_date: "2026-09-07",
@@ -213,10 +213,10 @@ test("one instant resolves different UTC and Kolkata calendar weeks at midnight"
   });
 
   const kolkataReport = await kolkata.service.getNutritionReport(
-    reportQuerySchema.parse({}),
+    reportQuerySchema.parse({}), "00000000-0000-4000-8000-000000000099"
   );
   const utcReport = await utc.service.getNutritionReport(
-    reportQuerySchema.parse({}),
+    reportQuerySchema.parse({}), "00000000-0000-4000-8000-000000000099"
   );
   assert.equal(kolkataReport.range.today, "2026-09-14");
   assert.equal(kolkataReport.range.start_date, "2026-09-14");
@@ -236,7 +236,7 @@ test("missing singletons and invalid timezone fail safely", async () => {
   ]) {
     const instance = harness({ repository });
     await assert.rejects(
-      instance.service.getNutritionReport(reportQuerySchema.parse({})),
+      instance.service.getNutritionReport(reportQuerySchema.parse({}), "00000000-0000-4000-8000-000000000099"),
       (error) => {
         assert(error instanceof AppError);
         return (
@@ -260,7 +260,7 @@ test("known database failures map to stable service errors", async () => {
     },
   });
   await assert.rejects(
-    instance.service.getNutritionReport(reportQuerySchema.parse({})),
+    instance.service.getNutritionReport(reportQuerySchema.parse({}), "00000000-0000-4000-8000-000000000099"),
     (error) => {
       assert(error instanceof AppError);
       return error.status === 503 && error.code === "DATABASE_TIMEOUT";

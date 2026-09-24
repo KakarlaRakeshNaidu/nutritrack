@@ -32,6 +32,9 @@ import type { Migration } from "../src/db/migration-runner.js";
 import { recordingLogger } from "../support/testing.js";
 import { loadDatabaseTestConfig } from "./database-test-config.js";
 
+const LEGACY_ID = "00000000-0000-4000-8000-000000000001";
+const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", sessionId: "00000000-0000-4000-8000-000000000002" };
+
 
 {
   const suffix = randomUUID().replaceAll("-", "").slice(0, 16);
@@ -165,7 +168,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       ...overrides,
     };
     return queryInSchema(
-      "INSERT INTO meals (food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, sodium_mg, calcium_mg, entry_source, is_estimate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *",
+      "INSERT INTO meals (user_id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, sodium_mg, calcium_mg, entry_source, is_estimate) VALUES ('00000000-0000-4000-8000-000000000001', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *",
       [
         values.foodName,
         values.mealType,
@@ -188,6 +191,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     query: string,
     values: unknown[],
     expectedConstraint: string,
+    expectedCode = "23514",
   ): Promise<void> {
     await assert.rejects(
       queryInSchema(query, values),
@@ -195,7 +199,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
         assert(error && typeof error === "object");
         return (
           "code" in error &&
-          error.code === "23514" &&
+          error.code === expectedCode &&
           "constraint" in error &&
           error.constraint === expectedConstraint
         );
@@ -338,7 +342,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     );
     assert.deepEqual(
       tables.rows.map((row) => row.table_name),
-      ["goals", "meals", "schema_migrations", "tracker_profile"],
+      ["auth_sessions", "goals", "meals", "schema_migrations", "tracker_profile", "nutritrack_users"],
     );
 
     const columns = await pool.query(
@@ -362,7 +366,9 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     const idDefault = column("meals.id").column_default;
     assert(typeof idDefault === "string");
     assert.match(idDefault, /gen_random_uuid/);
-    assert.equal(column("tracker_profile.id").data_type, "smallint");
+    assert.equal(column("tracker_profile.user_id").data_type, "uuid");
+    assert.equal(column("goals.user_id").data_type, "uuid");
+    assert.equal(column("meals.user_id").data_type, "uuid");
 
     const indexes = await pool.query(
       "SELECT indexname FROM pg_indexes WHERE schemaname = $1 ORDER BY indexname",
@@ -378,8 +384,9 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     );
     const constraintNames = new Set(constraints.rows.map((row) => row.conname));
     for (const name of [
-      "tracker_profile_singleton",
-      "goals_singleton",
+      "tracker_profile_user_fk",
+      "goals_user_fk",
+      "meals_user_fk",
       "meals_food_name_nonblank",
       "meals_meal_type_allowed",
       "meals_consumption_date_supported",
@@ -411,16 +418,16 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     assert.equal(mealsSeed.rows[0].count, 0);
 
     await queryInSchema(
-      "UPDATE tracker_profile SET display_name = $1, timezone = $2 WHERE id = 1",
+      "UPDATE tracker_profile SET display_name = $1, timezone = $2 WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       ["Phase 3 synthetic user", "UTC"],
     );
     await queryInSchema(
-      "UPDATE goals SET daily_calories_kcal = $1, daily_protein_g = $2 WHERE id = 1",
+      "UPDATE goals SET daily_calories_kcal = $1, daily_protein_g = $2 WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       ["2100.0000", "100.0000"],
     );
     const meal = await insertSyntheticMeal();
     const beforeRerun = await queryInSchema(
-      "SELECT (SELECT row_to_json(p) FROM tracker_profile p WHERE id=1) AS profile, (SELECT row_to_json(g) FROM goals g WHERE id=1) AS goals, (SELECT applied_at FROM schema_migrations WHERE version=1) AS applied_at",
+      "SELECT (SELECT row_to_json(p) FROM tracker_profile p WHERE user_id = '00000000-0000-4000-8000-000000000001') AS profile, (SELECT row_to_json(g) FROM goals g WHERE user_id = '00000000-0000-4000-8000-000000000001') AS goals, (SELECT applied_at FROM schema_migrations WHERE version=1) AS applied_at",
     );
 
     const result = await runMigrations({
@@ -430,7 +437,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       logger: recordingLogger(),
     });
     const afterRerun = await queryInSchema(
-      "SELECT (SELECT row_to_json(p) FROM tracker_profile p WHERE id=1) AS profile, (SELECT row_to_json(g) FROM goals g WHERE id=1) AS goals, (SELECT applied_at FROM schema_migrations WHERE version=1) AS applied_at",
+      "SELECT (SELECT row_to_json(p) FROM tracker_profile p WHERE user_id = '00000000-0000-4000-8000-000000000001') AS profile, (SELECT row_to_json(g) FROM goals g WHERE user_id = '00000000-0000-4000-8000-000000000001') AS goals, (SELECT applied_at FROM schema_migrations WHERE version=1) AS applied_at",
     );
     const persistedMeal = await queryInSchema("SELECT * FROM meals WHERE id = $1", [
       meal.rows[0].id,
@@ -452,32 +459,34 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     assert.notEqual(duplicate.rows[0].id, first.rows[0].id);
 
     await assertConstraint(
-      "INSERT INTO tracker_profile (id) VALUES ($1)",
-      [2],
-      "tracker_profile_singleton",
+      "INSERT INTO tracker_profile (user_id) VALUES ($1)",
+      [LEGACY_ID],
+      "tracker_profile_pkey",
+      "23505",
     );
     await assertConstraint(
-      "INSERT INTO goals (id) VALUES ($1)",
-      [2],
-      "goals_singleton",
+      "INSERT INTO goals (user_id) VALUES ($1)",
+      [LEGACY_ID],
+      "goals_pkey",
+      "23505",
     );
     await assertConstraint(
-      "INSERT INTO meals (food_name,meal_type,consumption_date,consumed_quantity,quantity_unit,calories_kcal,protein_g,carbs_g,fat_g) VALUES (' ', 'breakfast', '2026-09-12', 1, 'g', 0,0,0,0)",
+      "INSERT INTO meals (user_id, food_name,meal_type,consumption_date,consumed_quantity,quantity_unit,calories_kcal,protein_g,carbs_g,fat_g) VALUES ('00000000-0000-4000-8000-000000000001', ' ', 'breakfast', '2026-09-12', 1, 'g', 0,0,0,0)",
       [],
       "meals_food_name_nonblank",
     );
     await assertConstraint(
-      "INSERT INTO meals (food_name,meal_type,consumption_date,consumed_quantity,quantity_unit,calories_kcal,protein_g,carbs_g,fat_g) VALUES ('x', 'brunch', '2026-09-12', 1, 'g', 0,0,0,0)",
+      "INSERT INTO meals (user_id, food_name,meal_type,consumption_date,consumed_quantity,quantity_unit,calories_kcal,protein_g,carbs_g,fat_g) VALUES ('00000000-0000-4000-8000-000000000001', 'x', 'brunch', '2026-09-12', 1, 'g', 0,0,0,0)",
       [],
       "meals_meal_type_allowed",
     );
     await assertConstraint(
-      "INSERT INTO meals (food_name,meal_type,consumption_date,consumed_quantity,quantity_unit,calories_kcal,protein_g,carbs_g,fat_g) VALUES ('x', 'breakfast', '2026-09-12', -1, 'g', 0,0,0,0)",
+      "INSERT INTO meals (user_id, food_name,meal_type,consumption_date,consumed_quantity,quantity_unit,calories_kcal,protein_g,carbs_g,fat_g) VALUES ('00000000-0000-4000-8000-000000000001', 'x', 'breakfast', '2026-09-12', -1, 'g', 0,0,0,0)",
       [],
       "meals_consumed_quantity_bounds",
     );
     await assertConstraint(
-      "INSERT INTO meals (food_name,meal_type,consumption_date,consumed_quantity,quantity_unit,calories_kcal,protein_g,carbs_g,fat_g,entry_source,is_estimate) VALUES ('x', 'breakfast', '2026-09-12', 1, 'g', 0,0,0,0,'food_plate',false)",
+      "INSERT INTO meals (user_id, food_name,meal_type,consumption_date,consumed_quantity,quantity_unit,calories_kcal,protein_g,carbs_g,fat_g,entry_source,is_estimate) VALUES ('00000000-0000-4000-8000-000000000001', 'x', 'breakfast', '2026-09-12', 1, 'g', 0,0,0,0,'food_plate',false)",
       [],
       "meals_food_plate_is_estimate",
     );
@@ -485,13 +494,13 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
 
   test("failing and concurrent migrations remain atomic and serialized", async () => {
     const fixtureMigrations = [
-      migrations[0],
+      ...migrations,
       {
-        version: 2,
-        name: "002_failing_fixture.sql",
+        version: 3,
+        name: "003_failing_fixture.sql",
         sql: "CREATE TABLE rollback_probe (id INTEGER); SELECT missing_phase3_function();",
       },
-      { version: 3, name: "003_must_not_run.sql", sql: "CREATE TABLE later_probe()" },
+      { version: 4, name: "004_must_not_run.sql", sql: "CREATE TABLE later_probe()" },
     ];
     await assert.rejects(
       runMigrations({
@@ -508,7 +517,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       "SELECT version FROM schema_migrations ORDER BY version",
     );
     assert.equal(rollbackProbe.rows[0].object, null);
-    assert.deepEqual(migrationVersions.rows.map((row) => row.version), [1]);
+    assert.deepEqual(migrationVersions.rows.map((row) => row.version), [1, 2]);
 
     await pool.query("CREATE SCHEMA " + quotedConcurrentSchema);
     concurrentSchemaOwned = true;
@@ -530,13 +539,13 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     ]);
     assert.deepEqual(
       results.map((result) => result.appliedCount).sort(),
-      [0, 1],
+      [0, 2],
     );
     const concurrentCounts = await pool.query(
       "SELECT (SELECT count(*)::int FROM " + quotedConcurrentSchema + ".schema_migrations) AS migrations, (SELECT count(*)::int FROM " + quotedConcurrentSchema + ".tracker_profile) AS profiles, (SELECT count(*)::int FROM " + quotedConcurrentSchema + ".goals) AS goals",
     );
     assert.deepEqual(concurrentCounts.rows[0], {
-      migrations: 1,
+      migrations: 2,
       profiles: 1,
       goals: 1,
     });
@@ -545,27 +554,27 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
   test("real transactions roll back, commit, reject read-only writes, and recover", async () => {
     const transactionalPool = schemaPool();
     const original = await queryInSchema(
-      "SELECT daily_calories_kcal FROM goals WHERE id=1",
+      "SELECT daily_calories_kcal FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     await assert.rejects(
       withTransaction(transactionalPool, async (client) => {
         await client.query(
-          "UPDATE goals SET daily_calories_kcal = 3333 WHERE id=1",
+          "UPDATE goals SET daily_calories_kcal = 3333 WHERE user_id = '00000000-0000-4000-8000-000000000001'",
         );
         throw new Error("rollback fixture");
       }),
       /rollback fixture/,
     );
     const afterRollback = await queryInSchema(
-      "SELECT daily_calories_kcal FROM goals WHERE id=1",
+      "SELECT daily_calories_kcal FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     assert.deepEqual(afterRollback.rows, original.rows);
 
     await withTransaction(transactionalPool, async (client) => {
-      await client.query("UPDATE goals SET daily_calories_kcal = 2222 WHERE id=1");
+      await client.query("UPDATE goals SET daily_calories_kcal = 2222 WHERE user_id = '00000000-0000-4000-8000-000000000001'");
     });
     const afterCommit = await queryInSchema(
-      "SELECT daily_calories_kcal FROM goals WHERE id=1",
+      "SELECT daily_calories_kcal FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     assert.equal(afterCommit.rows[0].daily_calories_kcal, "2222.0000");
 
@@ -573,7 +582,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       withTransaction(
         transactionalPool,
         (client) =>
-          client.query("UPDATE goals SET daily_calories_kcal = 4444 WHERE id=1"),
+          client.query("UPDATE goals SET daily_calories_kcal = 4444 WHERE user_id = '00000000-0000-4000-8000-000000000001'"),
         { mode: "readOnlySnapshot" },
       ),
       (error) => {
@@ -585,6 +594,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
 
   test("profile route uses migrated data and handles invalid/missing profile safely", async () => {
     const app = createApp(config, {
+      testAuthIdentity: LEGACY_AUTH,
       pool: schemaPool(),
       clock: () => new Date("2026-09-12T12:00:00Z"),
       logger: recordingLogger(),
@@ -600,16 +610,16 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     const invalidQuery = await request(app).get("/api/v1/profile?unexpected=1");
     assert.equal(invalidQuery.status, 422);
 
-    await queryInSchema("UPDATE tracker_profile SET timezone='Not/A_Timezone' WHERE id=1");
+    await queryInSchema("UPDATE tracker_profile SET timezone='Not/A_Timezone' WHERE user_id = '00000000-0000-4000-8000-000000000001'");
     const invalid = await request(app).get("/api/v1/profile");
     assert.equal(invalid.status, 500);
-    await queryInSchema("UPDATE tracker_profile SET timezone='UTC' WHERE id=1");
+    await queryInSchema("UPDATE tracker_profile SET timezone='UTC' WHERE user_id = '00000000-0000-4000-8000-000000000001'");
 
-    await queryInSchema("DELETE FROM tracker_profile WHERE id=1");
+    await queryInSchema("DELETE FROM tracker_profile WHERE user_id = '00000000-0000-4000-8000-000000000001'");
     const missing = await request(app).get("/api/v1/profile");
     assert.equal(missing.status, 500);
     await queryInSchema(
-      "INSERT INTO tracker_profile (id, display_name, timezone) VALUES (1, $1, $2)",
+      "INSERT INTO tracker_profile (user_id, display_name, timezone) VALUES ('00000000-0000-4000-8000-000000000001', $1, $2)",
       ["Phase 3 synthetic user", "UTC"],
     );
   });
@@ -635,7 +645,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
 
   test("API restart preserves profile, goals, meals, and migration state", async () => {
     const beforeRestart = await queryInSchema(
-      "SELECT (SELECT count(*)::int FROM meals) AS meals, (SELECT count(*)::int FROM schema_migrations) AS migrations, (SELECT display_name FROM tracker_profile WHERE id=1) AS display_name, (SELECT daily_calories_kcal FROM goals WHERE id=1) AS calories",
+      "SELECT (SELECT count(*)::int FROM meals) AS meals, (SELECT count(*)::int FROM schema_migrations) AS migrations, (SELECT display_name FROM tracker_profile WHERE user_id = '00000000-0000-4000-8000-000000000001') AS display_name, (SELECT daily_calories_kcal FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001') AS calories",
     );
 
     for (const port of [3396, 3397]) {
@@ -649,7 +659,8 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
         runtime = await startServer(
           { ...config, PORT: String(port) },
           {
-            createPool: async () => runtimePool,
+            testAuthIdentity: LEGACY_AUTH,
+          createPool: async () => runtimePool,
             clock: () => new Date("2026-09-12T12:00:00Z"),
             logger: recordingLogger(),
           },
@@ -670,17 +681,17 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     }
 
     const afterRestart = await queryInSchema(
-      "SELECT (SELECT count(*)::int FROM meals) AS meals, (SELECT count(*)::int FROM schema_migrations) AS migrations, (SELECT display_name FROM tracker_profile WHERE id=1) AS display_name, (SELECT daily_calories_kcal FROM goals WHERE id=1) AS calories",
+      "SELECT (SELECT count(*)::int FROM meals) AS meals, (SELECT count(*)::int FROM schema_migrations) AS migrations, (SELECT display_name FROM tracker_profile WHERE user_id = '00000000-0000-4000-8000-000000000001') AS display_name, (SELECT daily_calories_kcal FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001') AS calories",
     );
     assert.deepEqual(afterRestart.rows, beforeRestart.rows);
   });
 
   test("live owned-schema goal lifecycle survives replacement and restart", async () => {
     await queryInSchema(
-      "UPDATE goals SET daily_calories_kcal=NULL, daily_protein_g=NULL, daily_carbs_g=NULL, daily_fat_g=NULL, target_weight_kg=NULL, updated_at=TIMESTAMPTZ '2000-01-01T00:00:00Z' WHERE id=1",
+      "UPDATE goals SET daily_calories_kcal=NULL, daily_protein_g=NULL, daily_carbs_g=NULL, daily_fat_g=NULL, target_weight_kg=NULL, updated_at=TIMESTAMPTZ '2000-01-01T00:00:00Z' WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     const original = await queryInSchema(
-      "SELECT id, created_at, updated_at, daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg FROM goals WHERE id=1",
+      "SELECT user_id AS id, created_at, updated_at, daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     assert.equal(original.rowCount, 1);
 
@@ -698,6 +709,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       return startServer(
         { ...config, PORT: String(port) },
         {
+          testAuthIdentity: LEGACY_AUTH,
           createPool: async () => schemaPool(),
           logger: recordingLogger(),
         },
@@ -717,7 +729,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
         updated_at: "2000-01-01T00:00:00.000Z",
       });
       const afterRead = await queryInSchema(
-        "SELECT id, created_at, updated_at, daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg FROM goals WHERE id=1",
+        "SELECT user_id AS id, created_at, updated_at, daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       );
       assert.deepEqual(afterRead.rows, original.rows);
 
@@ -747,7 +759,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       assert.match(replaced.body.data.updated_at, /^\d{4}-\d{2}-\d{2}T/);
 
       const persisted = await queryInSchema(
-        "SELECT id, created_at, updated_at, daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg FROM goals WHERE id=1",
+        "SELECT user_id AS id, created_at, updated_at, daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       );
       assert.equal(persisted.rowCount, 1);
       assert.equal(persisted.rows[0].id, original.rows[0].id);
@@ -760,7 +772,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       assert.equal(persisted.rows[0].target_weight_kg, "72.1234");
 
       const beforeInvalid = await queryInSchema(
-        "SELECT daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg, updated_at FROM goals WHERE id=1",
+        "SELECT daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg, updated_at FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       );
       for (const invalidBody of [
         { daily_calories_kcal: 2500 },
@@ -775,12 +787,12 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
         assert.equal(invalid.response.status, 422);
       }
       const afterInvalid = await queryInSchema(
-        "SELECT daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg, updated_at FROM goals WHERE id=1",
+        "SELECT daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg, updated_at FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       );
       assert.deepEqual(afterInvalid.rows, beforeInvalid.rows);
 
       await queryInSchema(
-        "UPDATE goals SET updated_at=TIMESTAMPTZ '2001-01-01T00:00:00Z' WHERE id=1",
+        "UPDATE goals SET updated_at=TIMESTAMPTZ '2001-01-01T00:00:00Z' WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       );
       const allNull = {
         daily_calories_kcal: null,
@@ -816,7 +828,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       assert.equal(afterRestart.response.status, 200);
       assert.deepEqual(afterRestart.body.data, cleared.body.data);
 
-      await queryInSchema("DELETE FROM goals WHERE id=1");
+      await queryInSchema("DELETE FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'");
       const missingRead = await call();
       assert.equal(missingRead.response.status, 500);
       assert.equal(missingRead.body.error.code, "INTERNAL_ERROR");
@@ -837,11 +849,11 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
         await runtime.shutdown("Phase 5 integration test");
       }
       const existing = await queryInSchema(
-        "SELECT count(*)::int AS count FROM goals WHERE id=1",
+        "SELECT count(*)::int AS count FROM goals WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       );
       if (existing.rows[0].count === 0) {
         await queryInSchema(
-          "INSERT INTO goals (id, daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg, created_at, updated_at) VALUES (1, $1, $2, $3, $4, $5, $6, $7)",
+          "INSERT INTO goals (user_id, daily_calories_kcal, daily_protein_g, daily_carbs_g, daily_fat_g, target_weight_kg, created_at, updated_at) VALUES ('00000000-0000-4000-8000-000000000001', $1, $2, $3, $4, $5, $6, $7)",
           [
             original.rows[0].daily_calories_kcal,
             original.rows[0].daily_protein_g,
@@ -858,7 +870,8 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
 
   test("live owned-schema meal CRUD preserves totals and full-replacement semantics", async () => {
     await queryInSchema("DELETE FROM meals");
-    const port = 3398;
+    await queryInSchema("UPDATE tracker_profile SET timezone = 'UTC' WHERE user_id = '00000000-0000-4000-8000-000000000001'");
+    const port = 34998;
     const runtimePool = schemaPool();
     let runtime;
 
@@ -902,6 +915,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       runtime = await startServer(
         { ...config, PORT: String(port) },
         {
+          testAuthIdentity: LEGACY_AUTH,
           createPool: async () => runtimePool,
           clock: () => new Date("2026-09-12T20:00:00Z"),
           logger: recordingLogger(),
@@ -1003,7 +1017,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       assert.equal(futureUtc.response.status, 422);
 
       await queryInSchema(
-        "UPDATE tracker_profile SET timezone = $1, updated_at = now() WHERE id = 1",
+        "UPDATE tracker_profile SET timezone = $1, updated_at = now() WHERE user_id = '00000000-0000-4000-8000-000000000001'",
         ["Asia/Kolkata"],
       );
       const kolkataToday = await call("/meals", {
@@ -1045,7 +1059,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       );
     } finally {
       await queryInSchema(
-        "UPDATE tracker_profile SET timezone = $1, updated_at = now() WHERE id = 1",
+        "UPDATE tracker_profile SET timezone = $1, updated_at = now() WHERE user_id = '00000000-0000-4000-8000-000000000001'",
         ["UTC"],
       );
       if (runtime) {
@@ -1057,13 +1071,14 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
   test("filtered database pagination is inclusive, stable, and mutation-aware", async () => {
     await queryInSchema("DELETE FROM meals");
     await queryInSchema(
-      "INSERT INTO meals (id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, sodium_mg, entry_source, is_estimate, created_at, updated_at) SELECT ('10000000-0000-4000-8000-' || lpad(value::text, 12, '0'))::uuid, 'Paged meal ' || value, 'dinner', DATE '2026-09-10', 1, 'piece', value, 1, 2, 3, 0, 'manual', false, TIMESTAMPTZ '2026-09-12T09:00:00Z', TIMESTAMPTZ '2026-09-12T09:00:00Z' FROM generate_series(1, 25) AS value",
+      "INSERT INTO meals (user_id, id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, sodium_mg, entry_source, is_estimate, created_at, updated_at) SELECT '00000000-0000-4000-8000-000000000001', ('10000000-0000-4000-8000-' || lpad(value::text, 12, '0'))::uuid, 'Paged meal ' || value, 'dinner', DATE '2026-09-10', 1, 'piece', value, 1, 2, 3, 0, 'manual', false, TIMESTAMPTZ '2026-09-12T09:00:00Z', TIMESTAMPTZ '2026-09-12T09:00:00Z' FROM generate_series(1, 25) AS value",
     );
     await queryInSchema(
-      "INSERT INTO meals (id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, entry_source, is_estimate, created_at, updated_at) VALUES ('20000000-0000-4000-8000-000000000001', 'Older diary date', 'breakfast', '2026-09-09', 1, 'piece', 1, 1, 1, 1, 'manual', false, '2099-01-01T00:00:00Z', '2099-01-01T00:00:00Z'), ('20000000-0000-4000-8000-000000000002', 'Newer diary date', 'breakfast', '2026-09-10', 1, 'piece', 1, 1, 1, 1, 'manual', false, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')",
+      "INSERT INTO meals (user_id, id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, entry_source, is_estimate, created_at, updated_at) VALUES ('00000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'Older diary date', 'breakfast', '2026-09-09', 1, 'piece', 1, 1, 1, 1, 'manual', false, '2099-01-01T00:00:00Z', '2099-01-01T00:00:00Z'), ('00000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000002', 'Newer diary date', 'breakfast', '2026-09-10', 1, 'piece', 1, 1, 1, 1, 'manual', false, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')",
     );
 
     const app = createApp(config, {
+      testAuthIdentity: LEGACY_AUTH,
       pool: schemaPool(),
       clock: () => new Date("2026-09-12T12:00:00Z"),
       logger: recordingLogger(),
@@ -1201,7 +1216,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
           "SELECT count(*)::int AS count FROM meals",
         );
         await queryInSchema(
-          "INSERT INTO meals (food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, entry_source, is_estimate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+          "INSERT INTO meals (user_id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, entry_source, is_estimate) VALUES ('00000000-0000-4000-8000-000000000001', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
           ["Concurrent meal", "snacks", "2026-09-12", 1, "piece", 1, 1, 1, 1, "manual", false],
         );
         const snapshotAfter = await client.query(
@@ -1227,16 +1242,17 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
   test("nutrition report real HTTP paging, grouping, and mutations use full aggregates", async () => {
     await queryInSchema("DELETE FROM meals");
     await queryInSchema(
-      "UPDATE tracker_profile SET timezone = 'Asia/Kolkata' WHERE id = 1",
+      "UPDATE tracker_profile SET timezone = 'Asia/Kolkata' WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     await queryInSchema(
-      "UPDATE goals SET daily_calories_kcal = 2000, daily_protein_g = 0, daily_carbs_g = NULL, daily_fat_g = 70, target_weight_kg = 75 WHERE id = 1",
+      "UPDATE goals SET daily_calories_kcal = 2000, daily_protein_g = 0, daily_carbs_g = NULL, daily_fat_g = 70, target_weight_kg = 75 WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     await queryInSchema(
-      "INSERT INTO meals (food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, entry_source, is_estimate) SELECT 'Report meal ' || value, 'breakfast', DATE '2026-09-07', 1, 'piece', 10, 0, 0, 0, 'manual', false FROM generate_series(1, 25) AS value",
+      "INSERT INTO meals (user_id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, entry_source, is_estimate) SELECT '00000000-0000-4000-8000-000000000001', 'Report meal ' || value, 'breakfast', DATE '2026-09-07', 1, 'piece', 10, 0, 0, 0, 'manual', false FROM generate_series(1, 25) AS value",
     );
 
     const app = createApp(config, {
+      testAuthIdentity: LEGACY_AUTH,
       pool: schemaPool(),
       clock: () => new Date("2026-09-12T12:00:00Z"),
       logger: recordingLogger(),
@@ -1284,7 +1300,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       "UPDATE meals SET calories_kcal = 20 WHERE id = (SELECT id FROM meals LIMIT 1)",
     );
     await queryInSchema(
-      "UPDATE goals SET daily_calories_kcal = 1000 WHERE id = 1",
+      "UPDATE goals SET daily_calories_kcal = 1000 WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     const changed = await request(app).get(base);
     assert.equal(changed.body.summary.calories_kcal, 260);
@@ -1367,10 +1383,11 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
   test("nutrition report preserves coverage and exact decimal arithmetic", async () => {
     await queryInSchema("DELETE FROM meals");
     await queryInSchema(
-      "INSERT INTO meals (food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, sodium_mg, calcium_mg, iron_mg, entry_source, is_estimate) VALUES ('Micro 1','lunch','2026-09-10',1,'piece',0.1,0,0,0,100,NULL,0,'manual',false), ('Micro 2','lunch','2026-09-10',1,'piece',0.2,0,0,0,NULL,NULL,0,'manual',false), ('Micro 3','lunch','2026-09-10',1,'piece',750000,0,0,0,20,NULL,0,'manual',false), ('Micro 4','lunch','2026-09-10',1,'piece',750000,0,0,0,0,NULL,0,'manual',false)",
+      "INSERT INTO meals (user_id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, sodium_mg, calcium_mg, iron_mg, entry_source, is_estimate) VALUES ('00000000-0000-4000-8000-000000000001', 'Micro 1','lunch','2026-09-10',1,'piece',0.1,0,0,0,100,NULL,0,'manual',false), ('00000000-0000-4000-8000-000000000001', 'Micro 2','lunch','2026-09-10',1,'piece',0.2,0,0,0,NULL,NULL,0,'manual',false), ('00000000-0000-4000-8000-000000000001', 'Micro 3','lunch','2026-09-10',1,'piece',750000,0,0,0,20,NULL,0,'manual',false), ('00000000-0000-4000-8000-000000000001', 'Micro 4','lunch','2026-09-10',1,'piece',750000,0,0,0,0,NULL,0,'manual',false)",
     );
     const response = await request(
       createApp(config, {
+      testAuthIdentity: LEGACY_AUTH,
         pool: schemaPool(),
         clock: () => new Date("2026-09-12T12:00:00Z"),
         logger: recordingLogger(),
@@ -1404,6 +1421,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
   test("nutrition report validates its cap and clips current and future weeks", async () => {
     await queryInSchema("DELETE FROM meals");
     const app = createApp(config, {
+      testAuthIdentity: LEGACY_AUTH,
       pool: schemaPool(),
       clock: () => new Date("2026-09-12T12:00:00Z"),
       logger: recordingLogger(),
@@ -1484,7 +1502,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
   test("report meal and goal reads stay on one synchronized snapshot", async () => {
     await queryInSchema("DELETE FROM meals");
     await queryInSchema(
-      "UPDATE goals SET daily_calories_kcal = 2000 WHERE id = 1",
+      "UPDATE goals SET daily_calories_kcal = 2000 WHERE user_id = '00000000-0000-4000-8000-000000000001'",
     );
     let signalReached: () => void = () => {};
     let signalAllowed: () => void = () => {};
@@ -1504,7 +1522,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
         async aggregateNutritionByDate(client, range) {
           signalReached();
           await allowed;
-          return aggregateNutritionByDate(client, range);
+          return aggregateNutritionByDate(client, range, "00000000-0000-4000-8000-000000000001");
         },
       },
     });
@@ -1514,14 +1532,14 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
       group_by: "day",
       page: 1,
       page_size: 20,
-    });
+    }, "00000000-0000-4000-8000-000000000001");
     await reached;
     await withTransaction(isolatedPool, async (client) => {
       await client.query(
-        "UPDATE goals SET daily_calories_kcal = 1000 WHERE id = 1",
+        "UPDATE goals SET daily_calories_kcal = 1000 WHERE user_id = '00000000-0000-4000-8000-000000000001'",
       );
       await client.query(
-        "INSERT INTO meals (food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, entry_source, is_estimate) VALUES ('Concurrent report meal','snacks','2026-09-12',1,'piece',500,0,0,0,'manual',false)",
+        "INSERT INTO meals (user_id, food_name, meal_type, consumption_date, consumed_quantity, quantity_unit, calories_kcal, protein_g, carbs_g, fat_g, entry_source, is_estimate) VALUES ('00000000-0000-4000-8000-000000000001', 'Concurrent report meal','snacks','2026-09-12',1,'piece',500,0,0,0,'manual',false)",
       );
     });
     signalAllowed();
@@ -1532,6 +1550,7 @@ import { loadDatabaseTestConfig } from "./database-test-config.js";
     assert.equal(snapshot.goal_comparison.calories_kcal.target, 2000);
     const after = await request(
       createApp(config, {
+      testAuthIdentity: LEGACY_AUTH,
         pool: isolatedPool,
         clock: () => new Date("2026-09-12T12:00:00Z"),
         logger: recordingLogger(),

@@ -4,6 +4,7 @@ import type { ReportAggregateRow } from "./report.calculations.js";
 export async function aggregateNutritionByDate(
   executor: DatabaseExecutor,
   { startDate, endDate }: { startDate: string; endDate: string },
+  userId: string,
 ): Promise<ReportAggregateRow[]> {
   // History pagination is intentionally absent: PostgreSQL aggregates every
   // matching persisted meal before the service paginates calendar buckets.
@@ -29,11 +30,11 @@ export async function aggregateNutritionByDate(
         sum(vitamin_d_mcg) AS vitamin_d_mcg_known_total,
         count(vitamin_d_mcg) AS vitamin_d_mcg_known_count
       FROM meals
-      WHERE consumption_date >= $1 AND consumption_date <= $2
+      WHERE user_id = $1 AND consumption_date >= $2 AND consumption_date <= $3
       GROUP BY consumption_date
       ORDER BY consumption_date ASC
     `,
-    values: [startDate, endDate],
+    values: [userId, startDate, endDate],
   });
 
   // SUM plus non-null COUNT preserves the distinction between an all-unknown

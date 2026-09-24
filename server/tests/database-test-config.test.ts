@@ -19,6 +19,7 @@ test("database tests load the selected application environment file", async () =
         "TRUST_PROXY_HOPS=0",
         "DATABASE_URL=" + FILE_DATABASE_URL,
         "PG_CA_CERT_PATH=/synthetic/application-ca.pem",
+        "JWT_SECRET=test-only-secret-with-at-least-32-characters",
       ].join("\n"),
   });
 

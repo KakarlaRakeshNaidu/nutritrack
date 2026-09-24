@@ -34,10 +34,12 @@ interface ReportRepository {
   aggregateNutritionByDate(
     executor: DatabaseExecutor,
     range: { startDate: string; endDate: string },
+    userId: string,
   ): Promise<ReportAggregateRow[]>;
-  findSingletonGoals(executor: DatabaseExecutor): Promise<Goal | null>;
+  findSingletonGoals(executor: DatabaseExecutor, userId: string): Promise<Goal | null>;
   findSingletonProfile(
     executor: DatabaseExecutor,
+    userId: string,
   ): Promise<Record<string, unknown> | null>;
 }
 
@@ -80,7 +82,7 @@ export interface NutritionReport {
 }
 
 export interface ReportService {
-  getNutritionReport(query: ReportQuery): Promise<NutritionReport>;
+  getNutritionReport(query: ReportQuery, userId: string): Promise<NutritionReport>;
 }
 
 function invalidPersistentSingleton(): AppError {
@@ -135,7 +137,7 @@ export function createReportService(
   }: ReportServiceDependencies,
 ): ReportService {
   return {
-    async getNutritionReport(query: ReportQuery) {
+    async getNutritionReport(query: ReportQuery, userId: string) {
       // One captured instant defines today for the entire response, even when
       // the request overlaps a timezone midnight during database work.
       const instant = clock();
@@ -146,7 +148,7 @@ export function createReportService(
           async (client) => {
             // Profile, goals, and aggregates all use this exact transaction
             // client so no response can mix values from different snapshots.
-            const profile = await repository.findSingletonProfile(client);
+            const profile = await repository.findSingletonProfile(client, userId);
             if (!validProfile(profile)) {
               throw invalidPersistentSingleton();
             }
@@ -160,7 +162,7 @@ export function createReportService(
               throw invalidPersistentSingleton();
             }
 
-            const goals = await repository.findSingletonGoals(client);
+            const goals = await repository.findSingletonGoals(client, userId);
             if (!goals) {
               throw invalidPersistentSingleton();
             }
@@ -168,7 +170,7 @@ export function createReportService(
             const rows = await repository.aggregateNutritionByDate(client, {
               startDate: resolved.startDate,
               endDate: resolved.endDate,
-            });
+            }, userId);
             const fullSummary = summarizeDailyRows(
               rows,
               resolved.startDate,

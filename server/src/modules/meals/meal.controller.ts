@@ -7,6 +7,7 @@ export function createMealController(mealService: MealService) {
     async createMeal(_request: Request, response: Response): Promise<void> {
       const meal = await mealService.createMeal(
         response.locals.validated.body,
+        response.locals.auth.userId,
       );
       response
         .location("/api/v1/meals/" + meal.id)
@@ -17,6 +18,7 @@ export function createMealController(mealService: MealService) {
     async listMeals(_request: Request, response: Response): Promise<void> {
       const result = await mealService.listMeals(
         response.locals.validated.query,
+        response.locals.auth.userId,
       );
       response.json(result);
     },
@@ -24,6 +26,7 @@ export function createMealController(mealService: MealService) {
     async getMeal(_request: Request, response: Response): Promise<void> {
       const meal = await mealService.getMeal(
         response.locals.validated.params.id,
+        response.locals.auth.userId,
       );
       response.json({ data: meal });
     },
@@ -32,12 +35,13 @@ export function createMealController(mealService: MealService) {
       const meal = await mealService.updateMeal(
         response.locals.validated.params.id,
         response.locals.validated.body,
+        response.locals.auth.userId,
       );
       response.json({ data: meal });
     },
 
     async deleteMeal(_request: Request, response: Response): Promise<void> {
-      await mealService.deleteMeal(response.locals.validated.params.id);
+      await mealService.deleteMeal(response.locals.validated.params.id, response.locals.auth.userId);
       response.status(204).end();
     },
   };

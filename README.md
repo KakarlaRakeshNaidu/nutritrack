@@ -19,8 +19,8 @@ in strict TypeScript. The backend production build emits JavaScript to
 - React 19.3.0, Vite 8.3.0, React Router 7.18.3, Recharts 3.10.1,
   React Hook Form 7.88.0, and @hookform/resolvers 5.9.1
 - Express 5.2.1, pg 8.23.0, Zod 4.6.2, Helmet 8.3.0, CORS 2.8.6,
-  Multer 2.3.0, Sharp 0.35.4, express-rate-limit 8.7.0, and
-  @google/genai 2.22.0
+  Multer 2.3.0, Sharp 0.35.4, express-rate-limit 8.7.0,
+  jsonwebtoken 9.0.2, Nodemailer 7.0.6, and @google/genai 2.22.0
 - ESLint 10.10.0, Node test runner/Supertest, Vitest, and React Testing Library
 - TypeScript 5.9.3 with strict NodeNext backend and bundler-aware frontend
   configurations; `tsx` is used only for development and source-level tests
@@ -43,13 +43,20 @@ Copy the safe template and replace placeholders:
 cp server/.env.example server/.env
 ```
 
-Configure PORT, NODE_ENV, CLIENT_ORIGIN, TRUST_PROXY_HOPS, DATABASE_URL, and
-PG_CA_CERT_PATH. DATABASE_URL must be a PostgreSQL URI without any ssl-prefixed
+Configure PORT, NODE_ENV, CLIENT_ORIGIN, TRUST_PROXY_HOPS, DATABASE_URL,
+PG_CA_CERT_PATH, JWT_SECRET, and SESSION_TTL_HOURS. DATABASE_URL must be a PostgreSQL URI without any ssl-prefixed
 query option. PG_CA_CERT_PATH must identify the trusted provider CA certificate
 file on disk (for example, a WSL path when developing on Windows).
 TRUST_PROXY_HOPS is the number of proxy hops Express trusts when resolving the
 client IP from X-Forwarded-For, including for per-IP AI rate limiting. Use 0 for
 direct access and 1 behind one reverse proxy or load balancer.
+
+JWT_SECRET must be an unpredictable value of at least 32 characters.
+SESSION_TTL_HOURS defaults to 24 and accepts 1 through 720. Optional welcome
+email uses Nodemailer when all five SMTP_HOST, SMTP_PORT, SMTP_USER,
+SMTP_PASSWORD, and SMTP_FROM values are configured; leaving all five absent
+disables email without disabling signup. Welcome email is informational and
+does not verify email ownership.
 
 The process owns one shared pg.Pool. It verifies the configured CA with
 rejectUnauthorized enabled, allows at most five connections, and uses bounded
@@ -75,13 +82,27 @@ npm --prefix server run db:migrate
 
 The first run applies pending migration files atomically under an advisory lock.
 The second must report that the schema is current. Migration 001 creates the
-singleton profile and goals plus the constrained meals table. It seeds no meals.
+original profile, goals, and constrained meals table. Migration 002 adds users,
+hashed JWT sessions, per-user ownership, and ownership indexes. Existing records
+are preserved under a reserved non-login legacy owner; no signup receives them.
 Do not edit an applied migration or reset a database to conceal conflicts.
 
-The profile defaults to Personal user and Asia/Kolkata. An authorized operator
-may update the singleton name/timezone directly in its seeded database row,
-not through the read-only profile API, before use. The persisted IANA
-timezone defines the backend value of today; it never rewrites meal DATE values.
+Each signup atomically creates a profile defaulting to the email local part and
+Asia/Kolkata plus an all-null goals row and empty diary. The authenticated
+Profile page can update only the display name; the persisted timezone remains
+operator-managed. To assign preserved legacy data, first back up
+the database, create the intended login account, leave that account's profile,
+goals, and diary untouched, and run:
+
+```bash
+npm --prefix server run db:assign-legacy -- user@example.com
+```
+
+The command is operator-only, transactional, and refuses a missing account or
+an account containing nondefault profile, goal, or meal data. It replaces that
+empty account's defaults with the preserved legacy profile/goals and moves the
+legacy meals; it is not exposed by the API. The persisted IANA timezone defines
+the backend value of today and never rewrites meal DATE values.
 
 ## Run the applications
 
@@ -104,10 +125,9 @@ npm --prefix server start
 TypeScript development runner. The build removes only stale `server/dist`
 output, type-checks production source, and emits a fresh build.
 
-This is a mandatory single-user application and has no authentication or
-ownership fields. Run it only in a deployment boundary where access is already
-appropriately restricted; anyone who can reach the API can read and mutate the
-single diary.
+NutriTrack requires an authenticated account. Profiles, goals, meals, reports,
+and nutrition workflows are scoped to the validated session owner. Signup does
+not inherit legacy or other users' data.
 
 Set VITE_API_BASE_URL only when the browser should use a non-default API:
 
@@ -120,7 +140,39 @@ This value is a public browser URL, not a place for secrets.
 The backend CLIENT_ORIGIN must exactly match the browser origin. The standard
 development origin is http://localhost:5173 and preview is
 http://localhost:4173; change the configured origin between those checks rather
-than disabling CORS or allowing a wildcard.
+than disabling CORS or allowing a wildcard. Browser API calls include
+credentials. Development uses an HttpOnly SameSite=Lax cookie; production uses
+an HttpOnly Secure SameSite=None cookie because the currently supported client
+and API may have different origins. Some browsers restrict cross-site cookies,
+so a same-site deployment or same-origin /api reverse proxy is the reliable
+production topology. Keep CLIENT_ORIGIN exact and never replace it with a
+wildcard.
+
+## Authentication API
+
+The browser provides responsive /signup and /login pages. Authentication uses
+the existing /api/v1 convention:
+
+| Method and path | Success | Purpose |
+| --- | --- | --- |
+| POST /api/v1/auth/signup | 201 | Create an account, default profile, all-null goals, and session |
+| POST /api/v1/auth/login | 200 | Verify credentials and create a session |
+| GET /api/v1/auth/me | 200 | Read the current session user |
+| POST /api/v1/auth/logout | 204 | Revoke the session and clear its cookie |
+
+Email is trimmed and lowercased; passwords are never trimmed or lowercased and
+must contain 12 through 128 characters. Passwords use salted scrypt hashes.
+JWTs use HS256 with issuer/audience, subject, session ID, and expiry claims.
+Only the JWT SHA-256 hash is stored in PostgreSQL; logout revokes that row.
+The session cookie is HttpOnly, limited to /api/v1, and expires after the
+configured SESSION_TTL_HOURS (24 by default).
+
+POST requests use an exact Origin check against CLIENT_ORIGIN for CSRF
+protection, and auth submission is rate limited. The central client sends
+credentials and redirects a 401 to login without replaying a failed write.
+Authentication errors are generic and do not expose passwords, tokens, or
+database details. Password reset, email verification, social login, account
+deletion, and administrative screens are intentionally not implemented.
 
 ## Meal-basics nutrition estimation API
 
@@ -721,10 +773,13 @@ and production-preview workflows were both verified in an actual browser.
 - Calendar-date and IANA-timezone helpers.
 - Verified-CA shared PostgreSQL pool, DATE text parsing, bounded timeouts,
   atomic migrations, and transaction helpers.
-- Persisted singleton profile/goals and an initially empty meals table.
-- Read-only profile API.
+- JWT signup/login/logout/current-session flows with salted scrypt passwords,
+  hashed server session records, expiry/revocation, CSRF origin checks, and
+  bounded authentication attempts.
+- Per-user profile/goals and private user-owned meals with ownership indexes.
+- Authenticated profile read and display-name update API with immediate header refresh.
 - Complete meal create/read/list/full-update/delete APIs.
-- Read and atomic full-replacement goal APIs over the seeded singleton.
+- Read and atomic full-replacement goal APIs scoped to the session owner.
 - Strict nullable goal validation with positive calories/weight, nonnegative
   macros, four-decimal precision, and explicit null/zero preservation.
 - Strict writable meal, UUID, date, provenance, precision, and query contracts.
@@ -737,7 +792,7 @@ and production-preview workflows were both verified in an actual browser.
   day/week grouping, and calendar-bucket pagination.
 - Full-range core totals, micronutrient known/unknown coverage, clipped empty
   buckets, current-goal comparisons, and exact decimal aggregation.
-- One-client repeatable-read report snapshots across profile, goals, and meals.
+- Per-user repeatable-read report snapshots across profile, goals, and meals.
 - Credential-free and owned-schema real-database regression suites.
 - API-backed current-week dashboard and dedicated nutrition reports route.
 - Recharts calorie and macro visualizations with keyboard-accessible exact-data
@@ -788,6 +843,7 @@ and production-preview workflows were both verified in an actual browser.
 
 Gemini is the only AI provider used by NutriTrack.
 
-The application includes no automatic AI save, OCR service,
-image persistence, authentication, multi-user ownership, chat, PDF import,
-export/reminders, schema reset, goal history, or weight history. 
+The application includes no automatic AI save, OCR service, image persistence,
+password reset, email verification, social login, account deletion,
+administrative dashboard, chat, PDF import, export/reminders, schema reset,
+goal history, or weight history. SMTP welcome messages do not verify ownership.

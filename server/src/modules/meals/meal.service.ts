@@ -17,24 +17,25 @@ import type { Meal, MealFilter } from "./meal.repository.js";
 import type { MealInput, MealListQuery } from "./meal.schemas.js";
 
 interface ProfileReader {
-  getProfile(): Promise<{ today: string }>;
+  getProfile(userId: string): Promise<{ today: string }>;
 }
 
 interface MealRepository {
   countMeals(executor: DatabaseExecutor, filter: MealFilter): Promise<unknown>;
-  createMealFilter(query: MealListQuery): MealFilter;
-  deleteMealById(executor: DatabaseExecutor, id: string): Promise<boolean>;
-  findMealById(executor: DatabaseExecutor, id: string): Promise<Meal | null>;
+  createMealFilter(query: MealListQuery, userId: string): MealFilter;
+  deleteMealById(executor: DatabaseExecutor, id: string, userId: string): Promise<boolean>;
+  findMealById(executor: DatabaseExecutor, id: string, userId: string): Promise<Meal | null>;
   findMealsPage(
     executor: DatabaseExecutor,
     filter: MealFilter,
     options: { pageSize: number; offset: number },
   ): Promise<Meal[]>;
-  insertMeal(executor: DatabaseExecutor, meal: MealInput): Promise<Meal>;
+  insertMeal(executor: DatabaseExecutor, meal: MealInput, userId: string): Promise<Meal>;
   replaceMeal(
     executor: DatabaseExecutor,
     id: string,
     meal: MealInput,
+    userId: string,
   ): Promise<Meal | null>;
 }
 
@@ -49,11 +50,11 @@ export interface MealListResult {
 }
 
 export interface MealService {
-  createMeal(meal: MealInput): Promise<Meal>;
-  getMeal(id: string): Promise<Meal>;
-  listMeals(query: MealListQuery): Promise<MealListResult>;
-  updateMeal(id: string, meal: MealInput): Promise<Meal>;
-  deleteMeal(id: string): Promise<void>;
+  createMeal(meal: MealInput, userId: string): Promise<Meal>;
+  getMeal(id: string, userId: string): Promise<Meal>;
+  listMeals(query: MealListQuery, userId: string): Promise<MealListResult>;
+  updateMeal(id: string, meal: MealInput, userId: string): Promise<Meal>;
+  deleteMeal(id: string, userId: string): Promise<void>;
 }
 
 interface MealServiceDependencies {
@@ -110,24 +111,24 @@ export function createMealService(
     },
   }: MealServiceDependencies,
 ): MealService {
-  async function validateWriteDate(meal: MealInput): Promise<void> {
+  async function validateWriteDate(meal: MealInput, userId: string): Promise<void> {
     // The profile service captures one clock instant and applies the persisted
     // IANA timezone. Both POST and PUT compare against that one derived today.
-    const { today } = await profileService.getProfile();
+    const { today } = await profileService.getProfile(userId);
     if (!isConsumptionDateAllowed(meal.consumption_date, today)) {
       throw futureConsumptionDate();
     }
   }
 
   return {
-    async createMeal(meal: MealInput) {
-      await validateWriteDate(meal);
-      return databaseOperation(() => repository.insertMeal(pool, meal));
+    async createMeal(meal: MealInput, userId: string) {
+      await validateWriteDate(meal, userId);
+      return databaseOperation(() => repository.insertMeal(pool, meal, userId));
     },
 
-    async getMeal(id: string) {
+    async getMeal(id: string, userId: string) {
       const meal = await databaseOperation(() =>
-        repository.findMealById(pool, id),
+        repository.findMealById(pool, id, userId),
       );
       if (!meal) {
         throw mealNotFound();
@@ -135,8 +136,8 @@ export function createMealService(
       return meal;
     },
 
-    async listMeals(query: MealListQuery) {
-      const filter = repository.createMealFilter(query);
+    async listMeals(query: MealListQuery, userId: string) {
+      const filter = repository.createMealFilter(query, userId);
       const offset = (query.page - 1) * query.page_size;
 
       return databaseOperation(() =>
@@ -174,10 +175,10 @@ export function createMealService(
       );
     },
 
-    async updateMeal(id: string, meal: MealInput) {
-      await validateWriteDate(meal);
+    async updateMeal(id: string, meal: MealInput, userId: string) {
+      await validateWriteDate(meal, userId);
       const updated = await databaseOperation(() =>
-        repository.replaceMeal(pool, id, meal),
+        repository.replaceMeal(pool, id, meal, userId),
       );
       if (!updated) {
         throw mealNotFound();
@@ -185,9 +186,9 @@ export function createMealService(
       return updated;
     },
 
-    async deleteMeal(id: string) {
+    async deleteMeal(id: string, userId: string) {
       const deleted = await databaseOperation(() =>
-        repository.deleteMealById(pool, id),
+        repository.deleteMealById(pool, id, userId),
       );
       if (!deleted) {
         throw mealNotFound();

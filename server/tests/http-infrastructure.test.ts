@@ -229,7 +229,7 @@ test("CORS permits only the configured origin and supports preflight", async () 
   );
   assert.match(preflight.headers["access-control-allow-methods"], /POST/);
   assert.match(preflight.headers["access-control-allow-headers"], /Content-Type/i);
-  assert.equal(preflight.headers["access-control-allow-credentials"], undefined);
+  assert.equal(preflight.headers["access-control-allow-credentials"], "true");
 });
 
 test("the central error handler delegates after response headers are sent", () => {

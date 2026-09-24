@@ -15,10 +15,15 @@ export const VALID_CORE_ENV = {
   DATABASE_URL:
     "postgresql://phase2_user:synthetic@database.invalid:5432/nutritrack",
   PG_CA_CERT_PATH: "/phase-3/aiven-ca.pem",
+  JWT_SECRET: "test-only-secret-with-at-least-32-characters",
 };
 
 export function testConfig(overrides: EnvironmentSource = {}) {
-  return loadEnv({ ...VALID_CORE_ENV, NODE_ENV: "test", ...overrides });
+  const config = loadEnv({ ...VALID_CORE_ENV, NODE_ENV: "test", ...overrides });
+  // Existing infrastructure/unit fixtures are not authentication tests. A blank
+  // test-only secret leaves production behavior impossible to bypass because
+  // loadEnv itself always requires a real secret.
+  return { ...config, JWT_SECRET: "" };
 }
 
 export function recordingLogger(): RecordingLogger {

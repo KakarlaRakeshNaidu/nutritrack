@@ -256,6 +256,7 @@ export function registerNutritionRoutes(
           declaredMime: request.file.mimetype,
           imageType: parsedType.data,
           signal: controller.signal,
+          userId: response.locals.auth.userId,
         });
         if (!controller.signal.aborted) {
           response.json({ data: result });
@@ -349,6 +350,7 @@ export function registerNutritionRoutes(
         const result = await estimateService.estimate(
           request.body,
           controller.signal,
+          response.locals.auth.userId,
         );
         if (!controller.signal.aborted) response.json({ data: result });
       } catch (error) {

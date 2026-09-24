@@ -7,6 +7,7 @@ export function createReportController(reportService: ReportService) {
     async getNutritionReport(_request: Request, response: Response): Promise<void> {
       const report = await reportService.getNutritionReport(
         response.locals.validated.query,
+        response.locals.auth.userId,
       );
       // Report collections intentionally live at the response root; wrapping
       // them would diverge from the documented collection contract.

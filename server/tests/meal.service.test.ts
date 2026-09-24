@@ -134,10 +134,10 @@ function createHarness(overrides: HarnessOverrides = {}) {
 
 test("create and full update validate one profile-derived today and keep totals independent", async () => {
   const harness = createHarness();
-  const created = await harness.service.createMeal(mealInput());
+  const created = await harness.service.createMeal(mealInput(), "00000000-0000-4000-8000-000000000099");
   const updated = await harness.service.updateMeal(
     ID,
-    mealInput({ consumed_quantity: 300 }),
+    mealInput({ consumed_quantity: 300 }), "00000000-0000-4000-8000-000000000099"
   );
 
   assert.equal(created.calories_kcal, 180);
@@ -167,7 +167,7 @@ test("future writes fail before mutation while the current date remains valid", 
   });
 
   await assert.rejects(
-    harness.service.createMeal(mealInput({ consumption_date: "2026-09-13" })),
+    harness.service.createMeal(mealInput({ consumption_date: "2026-09-13" }), "00000000-0000-4000-8000-000000000099"),
     (error) => {
       assert(error instanceof AppError);
       return (
@@ -180,7 +180,7 @@ test("future writes fail before mutation while the current date remains valid", 
   await assert.rejects(
     harness.service.updateMeal(
       ID,
-      mealInput({ consumption_date: "2026-09-13" }),
+      mealInput({ consumption_date: "2026-09-13" }), "00000000-0000-4000-8000-000000000099"
     ),
     (error) => {
       assert(error instanceof AppError);
@@ -195,7 +195,7 @@ test("list count and page share one repeatable-read client and preserve true tot
   const result = await harness.service.listMeals({
     page: 2,
     page_size: 10,
-  });
+  }, "00000000-0000-4000-8000-000000000099");
 
   assert.deepEqual(result.pagination, {
     page: 2,
@@ -224,7 +224,7 @@ test("maximum valid page computes a safe non-32-bit offset", async () => {
   await harness.service.listMeals({
     page: 2_147_483_647,
     page_size: 100,
-  });
+  }, "00000000-0000-4000-8000-000000000099");
   const pageCall = harness.calls.find(
     (call) => Array.isArray(call) && call[0] === "page",
   );
@@ -250,21 +250,21 @@ test("valid missing reads, updates, and repeated deletes return MEAL_NOT_FOUND",
   });
 
   await assert.rejects(
-    harness.service.getMeal(ID),
+    harness.service.getMeal(ID, "00000000-0000-4000-8000-000000000099"),
     (error) => {
       assert(error instanceof AppError);
       return error.status === 404 && error.code === "MEAL_NOT_FOUND";
     },
   );
   await assert.rejects(
-    harness.service.updateMeal(ID, mealInput()),
+    harness.service.updateMeal(ID, mealInput(), "00000000-0000-4000-8000-000000000099"),
     (error) => {
       assert(error instanceof AppError);
       return error.status === 404 && error.code === "MEAL_NOT_FOUND";
     },
   );
   await assert.rejects(
-    harness.service.deleteMeal(ID),
+    harness.service.deleteMeal(ID, "00000000-0000-4000-8000-000000000099"),
     (error) => {
       assert(error instanceof AppError);
       return error.status === 404 && error.code === "MEAL_NOT_FOUND";
@@ -285,7 +285,7 @@ test("only known database availability and timeout errors become 503", async () 
       },
     });
     await assert.rejects(
-      harness.service.getMeal(ID),
+      harness.service.getMeal(ID, "00000000-0000-4000-8000-000000000099"),
       (error) => {
         assert(error instanceof AppError);
         return error.status === 503 && error.code === expected;
@@ -301,7 +301,7 @@ test("only known database availability and timeout errors become 503", async () 
     },
   });
   await assert.rejects(
-    syntax.service.getMeal(ID),
+    syntax.service.getMeal(ID, "00000000-0000-4000-8000-000000000099"),
     (error) => {
       assert(error && typeof error === "object" && "code" in error);
       return error.code === "42601";

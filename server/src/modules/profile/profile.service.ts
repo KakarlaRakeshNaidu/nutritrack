@@ -1,11 +1,12 @@
 import { mapDatabaseError } from "../../db/database-errors.js";
 import { AppError } from "../../utils/errors.js";
 import type { Clock, DatabaseExecutor } from "../../types.js";
+import { getTodayInTimeZone, getWeekBounds } from "../../utils/calendar.js";
 import {
-  getTodayInTimeZone,
-  getWeekBounds,
-} from "../../utils/calendar.js";
-import { findSingletonProfile } from "./profile.repository.js";
+  findSingletonProfile,
+  updateProfileDisplayName,
+} from "./profile.repository.js";
+import type { ProfileUpdateInput } from "./profile.schemas.js";
 
 export interface Profile {
   display_name: string;
@@ -16,15 +17,13 @@ export interface Profile {
 }
 
 export interface ProfileService {
-  getProfile(): Promise<Profile>;
+  getProfile(userId: string): Promise<Profile>;
+  updateProfile(input: ProfileUpdateInput, userId: string): Promise<Profile>;
 }
 
 interface ProfileServiceDependencies {
   pool: DatabaseExecutor;
   clock?: Clock;
-  findProfile?: (
-    pool: DatabaseExecutor,
-  ) => Promise<Record<string, unknown> | null>;
 }
 
 function invalidPersistedProfile(): AppError {
@@ -35,49 +34,55 @@ function invalidPersistedProfile(): AppError {
   });
 }
 
-export function createProfileService(
-  {
-    pool,
-    clock = () => new Date(),
-    findProfile = findSingletonProfile,
-  }: ProfileServiceDependencies,
-): ProfileService {
-  return {
-    async getProfile() {
-      let profile: Record<string, unknown> | null;
+function mapProfile(profile: Record<string, unknown> | null, now: Date): Profile {
+  if (
+    !profile ||
+    typeof profile.display_name !== "string" ||
+    profile.display_name.trim().length === 0 ||
+    typeof profile.timezone !== "string" ||
+    profile.timezone.trim().length === 0
+  ) {
+    throw invalidPersistedProfile();
+  }
 
+  try {
+    const today = getTodayInTimeZone(now, profile.timezone);
+    const { weekStart, weekEnd } = getWeekBounds(today);
+    return {
+      display_name: profile.display_name,
+      timezone: profile.timezone,
+      today,
+      week_start: weekStart,
+      week_end: weekEnd,
+    };
+  } catch {
+    throw invalidPersistedProfile();
+  }
+}
+
+export function createProfileService({
+  pool,
+  clock = () => new Date(),
+}: ProfileServiceDependencies): ProfileService {
+  return {
+    async getProfile(userId) {
       try {
-        profile = await findProfile(pool);
+        return mapProfile(await findSingletonProfile(pool, userId), clock());
       } catch (error) {
+        if (error instanceof AppError) throw error;
         throw mapDatabaseError(error);
       }
+    },
 
-      if (
-        !profile ||
-        typeof profile.display_name !== "string" ||
-        profile.display_name.trim().length === 0 ||
-        typeof profile.timezone !== "string" ||
-        profile.timezone.trim().length === 0
-      ) {
-        throw invalidPersistedProfile();
-      }
-
+    async updateProfile(input, userId) {
       try {
-        // Capture one instant and use the persisted timezone for the complete
-        // response, avoiding inconsistent dates across a midnight boundary.
-        const now = clock();
-        const today = getTodayInTimeZone(now, profile.timezone);
-        const { weekStart, weekEnd } = getWeekBounds(today);
-
-        return {
-          display_name: profile.display_name,
-          timezone: profile.timezone,
-          today,
-          week_start: weekStart,
-          week_end: weekEnd,
-        };
-      } catch {
-        throw invalidPersistedProfile();
+        return mapProfile(
+          await updateProfileDisplayName(pool, userId, input.display_name),
+          clock(),
+        );
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        throw mapDatabaseError(error);
       }
     },
   };
