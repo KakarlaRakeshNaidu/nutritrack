@@ -61,7 +61,6 @@ interview-prep/
 
 # Ignored output folders
 docs/*
-!docs/MULTI_USER_VERIFICATION.md
-!docs/MULTI_USER_ROLLOUT.md
+
 graphify-out/
 .agents/
