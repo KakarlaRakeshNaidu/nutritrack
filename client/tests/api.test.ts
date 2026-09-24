@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiRequest } from "../src/api/client";
+import { ApiError, apiRequest, resolveApiBaseUrl } from "../src/api/client";
 import type { MealPayload } from "../src/types";
 import {
   createMeal,
@@ -40,6 +40,24 @@ describe("frontend API boundary", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it("uses the same-origin API proxy in production", () => {
+    expect(
+      resolveApiBaseUrl({
+        production: true,
+        configured: "https://api.example.test/api/v1",
+        hostname: "nutritrack-beta-swart.vercel.app",
+      }),
+    ).toBe("/api/v1");
+
+    expect(
+      resolveApiBaseUrl({
+        production: true,
+        configured: "http://localhost:3000/api/v1",
+        hostname: "localhost",
+      }),
+    ).toBe("http://localhost:3000/api/v1");
   });
 
   it("constructs list and resource URLs without changing pagination metadata", async () => {

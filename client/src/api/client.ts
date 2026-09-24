@@ -30,7 +30,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
-const DEFAULT_API_BASE_URL = "http://localhost:3000/api/v1";
+const DEVELOPMENT_API_BASE_URL = "http://localhost:3000/api/v1";
+
+export function resolveApiBaseUrl({
+  production,
+  configured,
+  hostname,
+}: {
+  production: boolean;
+  configured?: string;
+  hostname?: string;
+}): string {
+  const isLoopback = hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1";
+
+  // Hosted production uses the same-origin proxy so the HttpOnly session
+  // cookie remains first-party. Local previews may still target a local API.
+  if (production && !isLoopback) return "/api/v1";
+  return (configured?.trim() || DEVELOPMENT_API_BASE_URL).replace(/\/+$/, "");
+}
 
 export class ApiError extends Error {
   readonly code: string;
@@ -61,8 +80,11 @@ export class ApiError extends Error {
 }
 
 function apiBaseUrl(): string {
-  const configured = import.meta.env.VITE_API_BASE_URL?.trim();
-  return (configured || DEFAULT_API_BASE_URL).replace(/\/+$/, "");
+  return resolveApiBaseUrl({
+    production: import.meta.env.PROD,
+    configured: import.meta.env.VITE_API_BASE_URL,
+    hostname: window.location.hostname,
+  });
 }
 
 function safeErrorEnvelope(

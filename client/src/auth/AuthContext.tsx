@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { currentSession, logout as requestLogout, type AuthUser } from "../api/auth";
 import { ApiError } from "../api/client";
@@ -21,6 +22,7 @@ function safeReturnPath(value: string): string {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     finishAuthentication(nextUser, returnTo) {
       setUser(nextUser);
       setDisplayName(null);
-      window.location.assign(safeReturnPath(returnTo));
+      navigate(safeReturnPath(returnTo), { replace: true });
     },
     setDisplayName,
     async logout() {
@@ -81,10 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         setUser(null);
         setDisplayName(null);
-        window.location.assign("/login");
+        navigate("/login", { replace: true });
       }
     },
-  }), [user, displayName, loading]);
+  }), [user, displayName, loading, navigate]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
