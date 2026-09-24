@@ -766,6 +766,14 @@ Preview uses http://localhost:4173 with strict-port behavior. Build-time
 VITE_API_BASE_URL must identify the backend used by that preview. Development
 and production-preview workflows were both verified in an actual browser.
 
+For the Vercel client, client/vercel.json proxies /api to the Render backend
+and preserves SPA route refreshes. Set the Vercel VITE_API_BASE_URL to /api/v1
+(or remove the previous absolute Render value and use /api/v1 at build time).
+Deploy the current backend before the client so /api/v1/auth routes exist.
+Render CLIENT_ORIGIN must exactly equal the production Vercel origin. This
+same-origin browser path avoids third-party-cookie restrictions while retaining
+the backend's exact Origin check and secure HttpOnly session cookie.
+
 ## Implemented feature set
 
 - Strict startup configuration, request IDs, Helmet/CORS, safe errors, and

@@ -30,7 +30,15 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
       const nextUser = mode === "signup" ? await signup(email, password) : await login(email, password);
       finishAuthentication(nextUser, returnPath(location.state));
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "The request could not be completed.");
+      setError(
+        caught instanceof ApiError && caught.code === "NETWORK_ERROR"
+          ? mode === "signup"
+            ? "The authentication service could not be reached. Before retrying signup, try signing in in case the account was created."
+            : "The authentication service could not be reached. Check your connection and try again."
+          : caught instanceof ApiError
+            ? caught.message
+            : "The request could not be completed.",
+      );
       setBusy(false);
     }
   }

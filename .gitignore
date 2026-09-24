@@ -60,7 +60,6 @@ chrome-profile/
 interview-prep/
 
 # Ignored output folders
-docs/*
-
+docs/
 graphify-out/
 .agents/
