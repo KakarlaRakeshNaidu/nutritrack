@@ -55,8 +55,21 @@ test("forward migration preserves legacy data and enforces private user ownershi
       ) VALUES ('Preserved legacy meal', 'dinner', DATE '2026-09-11', 1, 'serving',
         400, 20, 40, 12, 500, 'manual', false)
     `);
-    const phaseTwo = await runMigrations({ pool: isolated, migrations, schema, logger: recordingLogger() });
-    const repeat = await runMigrations({ pool: isolated, migrations, schema, logger: recordingLogger() });
+    const authenticationMigrations = migrations.filter(
+      (migration) => migration.version <= 2,
+    );
+    const phaseTwo = await runMigrations({
+      pool: isolated,
+      migrations: authenticationMigrations,
+      schema,
+      logger: recordingLogger(),
+    });
+    const repeat = await runMigrations({
+      pool: isolated,
+      migrations: authenticationMigrations,
+      schema,
+      logger: recordingLogger(),
+    });
     assert.equal(phaseTwo.appliedCount, 1);
     assert.equal(repeat.appliedCount, 0);
 

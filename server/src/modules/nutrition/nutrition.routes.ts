@@ -1,5 +1,5 @@
 import express from "express";
-import type { Express, Request, Response } from "express";
+import type { Express, Request, RequestHandler, Response } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import multer from "multer";
 
@@ -31,6 +31,29 @@ const UPLOAD_TIMEOUT_MS = 15_000;
 const MAX_CONCURRENT_EXTRACTIONS = 2;
 const RATE_WINDOW_MS = 10 * 60 * 1_000;
 const RATE_MAX = 10;
+
+export function createAiRateLimit({
+  rateMax = RATE_MAX,
+  rateWindowMs = RATE_WINDOW_MS,
+}: { rateMax?: number; rateWindowMs?: number } = {}): RequestHandler {
+  return rateLimit({
+    windowMs: rateWindowMs,
+    limit: rateMax,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (request) => ipKeyGenerator(request.ip ?? "unknown"),
+    handler(request, response) {
+      response.status(429).json({
+        error: {
+          code: "AI_RATE_LIMITED",
+          message: "Too many nutrition AI requests.",
+          details: [],
+          request_id: response.locals.requestId,
+        },
+      });
+    },
+  });
+}
 
 export class ExtractionRuntime {
   private activeCount = 0;
@@ -69,6 +92,7 @@ export class ExtractionRuntime {
 interface NutritionRouteDependencies {
   pool: DatabasePool;
   config: Pick<AppConfig, "providers">;
+  aiRateLimit?: RequestHandler;
   clock?: Clock;
   service?: ExtractionService;
   estimateService?: NutritionEstimateService;
@@ -147,6 +171,7 @@ export function registerNutritionRoutes(
   {
     pool,
     config,
+    aiRateLimit,
     clock,
     service = createExtractionService({ pool, providers: config.providers, clock }),
     estimateService = createNutritionEstimateService({
@@ -177,27 +202,14 @@ export function registerNutritionRoutes(
   const parseUpload = uploadOnce(upload, uploadTimeoutMs);
   // One limiter instance and one runtime are shared by image and text work, so
   // adding estimation cannot double the process or per-IP AI budget.
-  const aiRateLimit = rateLimit({
-    windowMs: rateWindowMs,
-    limit: rateMax,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-    keyGenerator: (request) => ipKeyGenerator(request.ip ?? "unknown"),
-    handler(request, response) {
-      response.status(429).json({
-        error: {
-          code: "AI_RATE_LIMITED",
-          message: "Too many nutrition AI requests.",
-          details: [],
-          request_id: response.locals.requestId,
-        },
-      });
-    },
+  const routeAiRateLimit = aiRateLimit ?? createAiRateLimit({
+    rateMax,
+    rateWindowMs,
   });
 
   router.post(
     "/extract",
-    aiRateLimit,
+    routeAiRateLimit,
     async (request, response, next): Promise<void> => {
       if (!request.is("multipart/form-data")) {
         next(requestError(415, "UNSUPPORTED_MEDIA_TYPE", "Use multipart/form-data."));
@@ -315,7 +327,7 @@ export function registerNutritionRoutes(
       limit: JSON_BODY_LIMIT_BYTES,
       type: ["application/json"],
     }),
-    aiRateLimit,
+    routeAiRateLimit,
     validateRequest({ body: mealBasicsSchema }),
     async (request, response, next): Promise<void> => {
       if (!hasNoQuery(request)) {

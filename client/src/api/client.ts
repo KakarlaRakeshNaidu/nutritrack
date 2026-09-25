@@ -30,7 +30,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
-const DEVELOPMENT_API_BASE_URL = "http://localhost:3000/api/v1";
+const DEVELOPMENT_API_BASE_URL = "/api/v1";
 
 export function resolveApiBaseUrl({
   production,

@@ -21,8 +21,11 @@ import {
 import { registerMealRoutes } from "./modules/meals/meal.routes.js";
 import {
   ExtractionRuntime,
+  createAiRateLimit,
   registerNutritionRoutes,
 } from "./modules/nutrition/nutrition.routes.js";
+import { registerChatRoutes } from "./modules/chat/chat.routes.js";
+import type { ChatPlanner } from "./modules/chat/chat.gemini.js";
 import type { ExtractionService } from "./modules/nutrition/nutrition.service.js";
 import type { NutritionEstimateService } from "./modules/nutrition/nutrition-estimate.service.js";
 import { registerProfileRoutes } from "./modules/profile/profile.routes.js";
@@ -40,6 +43,7 @@ interface CreateAppOptions {
   logger?: Logger;
   extractionService?: ExtractionService;
   nutritionEstimateService?: NutritionEstimateService;
+  chatPlanner?: ChatPlanner;
   extractionRuntime?: ExtractionRuntime;
   extractionUploadTimeoutMs?: number;
   testAuthIdentity?: AuthIdentity;
@@ -70,12 +74,17 @@ export function createApp(
     logger = console,
     extractionService,
     nutritionEstimateService,
+    chatPlanner,
     extractionRuntime,
     extractionUploadTimeoutMs,
     testAuthIdentity,
   }: CreateAppOptions = {},
 ): Express {
   const app = express();
+  const sharedAiRuntime = pool
+    ? (extractionRuntime ?? new ExtractionRuntime())
+    : undefined;
+  const sharedAiRateLimit = pool ? createAiRateLimit() : undefined;
 
   // A numeric hop count trusts only the configured proxy depth. Zero preserves
   // Express's direct-client behavior and never enables unrestricted proxy trust.
@@ -93,6 +102,7 @@ export function createApp(
       "/api/v1/meals",
       "/api/v1/reports",
       "/api/v1/nutrition",
+      "/api/v1/chat",
     ];
     if (config.NODE_ENV === "test" && testAuthIdentity) {
       app.use(protectedPaths, (_request, response, next) => {
@@ -124,7 +134,8 @@ export function createApp(
       clock,
       service: extractionService,
       estimateService: nutritionEstimateService,
-      runtime: extractionRuntime,
+      runtime: sharedAiRuntime,
+      aiRateLimit: sharedAiRateLimit,
       uploadTimeoutMs: extractionUploadTimeoutMs,
     });
 
@@ -147,6 +158,14 @@ export function createApp(
     registerGoalRoutes(app, { pool });
     registerProfileRoutes(app, { pool, clock });
     registerReportRoutes(app, { pool, clock });
+    registerChatRoutes(app, {
+      pool,
+      config,
+      clock,
+      planner: chatPlanner,
+      runtime: sharedAiRuntime!,
+      aiRateLimit: sharedAiRateLimit!,
+    });
   }
 
   // Tests can mount small fixture handlers through this composition boundary.

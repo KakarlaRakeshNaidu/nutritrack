@@ -11,6 +11,7 @@ import { NotFound } from "./pages/NotFound";
 import { Reports } from "./pages/Reports";
 import { Profile } from "./pages/Profile";
 import { AuthPage } from "./pages/AuthPage";
+import { Chat } from "./pages/Chat";
 
 function AppLayout() {
   const { user, displayName } = useAuth();
@@ -33,6 +34,7 @@ function AppLayout() {
           <NavLink to="/meals">Meals</NavLink>
           <NavLink to="/goals">Goals</NavLink>
           <NavLink to="/reports">Reports</NavLink>
+          <NavLink to="/chat">Chat</NavLink>
           <NavLink className="nav-user" to="/profile" title={displayName ?? user?.email}>
             {displayName ?? user?.email}
           </NavLink>
@@ -62,6 +64,7 @@ export function App() {
         <Route path="meals/:id/edit" element={<MealEditor />} />
         <Route path="goals" element={<Goals />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="chat" element={<Chat />} />
         <Route path="profile" element={<Profile />} />
           <Route path="*" element={<NotFound />} />
         </Route>

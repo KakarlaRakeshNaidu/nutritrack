@@ -10,6 +10,43 @@ vi.mock("../src/api/auth", () => ({
   logout: async () => undefined,
 }));
 
+vi.mock("../src/api/chat", () => ({
+  cancelChatProposal: async () => undefined,
+  confirmChatProposal: async () => undefined,
+  createConversation: async () => ({
+    id: "conversation-new",
+    title: "New nutrition conversation",
+    created_at: "2026-09-25T00:00:00.000Z",
+    updated_at: "2026-09-25T00:00:00.000Z",
+  }),
+  createImageMealProposal: async () => undefined,
+  getChatProposal: async () => undefined,
+  listChatMessages: async () => ({
+    items: [],
+    pagination: {
+      page: 1,
+      page_size: 20,
+      total_items: 0,
+      total_pages: 0,
+    },
+  }),
+  listConversations: async () => ({
+    items: [{
+      id: "conversation-1",
+      title: "Cooked rice lunch",
+      created_at: "2026-09-25T00:00:00.000Z",
+      updated_at: "2026-09-25T00:00:00.000Z",
+    }],
+    pagination: {
+      page: 1,
+      page_size: 20,
+      total_items: 1,
+      total_pages: 1,
+    },
+  }),
+  submitChatMessage: async () => undefined,
+}));
+
 vi.mock("../src/api/profile", () => ({
   getProfile: async () => ({
     display_name: "Personal user",
@@ -71,6 +108,22 @@ describe("application routes", () => {
 
     expect(await screen.findByText("Profile name saved.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Rakesh Naidu" })).toHaveAttribute("href", "/profile");
+  });
+
+  it("places a meaningful conversation title and image attachment inside the chat composer", async () => {
+    render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <AuthProvider><App /></AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Nutrition chat" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Cooked rice lunch" })).toBeInTheDocument();
+    const attach = screen.getByRole("button", {
+      name: "Attach nutrition label or food photo",
+    });
+    expect(attach.closest("form")).toHaveAttribute("aria-label", "Chat message");
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeInTheDocument();
   });
 
   it("renders a useful not-found route", async () => {

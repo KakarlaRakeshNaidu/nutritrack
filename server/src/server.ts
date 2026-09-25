@@ -19,6 +19,7 @@ import { ExtractionRuntime } from "./modules/nutrition/nutrition.routes.js";
 import type { ExtractionService } from "./modules/nutrition/nutrition.service.js";
 import type { NutritionEstimateService } from "./modules/nutrition/nutrition-estimate.service.js";
 import type { AuthIdentity } from "./modules/auth/auth.service.js";
+import type { ChatPlanner } from "./modules/chat/chat.gemini.js";
 import type { Clock, DatabaseExecutor, DatabasePool, Logger } from "./types.js";
 
 interface ServerDependencies {
@@ -31,6 +32,7 @@ interface ServerDependencies {
   clock?: Clock;
   extractionService?: ExtractionService;
   nutritionEstimateService?: NutritionEstimateService;
+  chatPlanner?: ChatPlanner;
   testAuthIdentity?: AuthIdentity;
 }
 
@@ -104,6 +106,7 @@ export async function startServer(
     clock,
     extractionService,
     nutritionEstimateService,
+    chatPlanner,
     testAuthIdentity,
   }: ServerDependencies = {},
 ): Promise<RunningServer> {
@@ -145,6 +148,7 @@ export async function startServer(
     logger,
     extractionService,
     nutritionEstimateService,
+    chatPlanner,
     testAuthIdentity,
   });
   const server = app.listen(config.PORT);

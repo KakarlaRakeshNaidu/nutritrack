@@ -44,9 +44,14 @@ const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", ses
   const quotedConcurrentSchema = quoteInternalIdentifier(concurrentSchema);
   const migrationsDirectory = new URL("../migrations/", import.meta.url);
   const applicationSchemaTables = [
-    { name: "tracker_profile", orderBy: "id" },
-    { name: "goals", orderBy: "id" },
+    { name: "nutritrack_users", orderBy: "id" },
+    { name: "tracker_profile", orderBy: "user_id" },
+    { name: "goals", orderBy: "user_id" },
     { name: "meals", orderBy: "id" },
+    { name: "auth_sessions", orderBy: "id" },
+    { name: "chat_conversations", orderBy: "id" },
+    { name: "chat_messages", orderBy: "id" },
+    { name: "chat_action_proposals", orderBy: "id" },
     { name: "schema_migrations", orderBy: "version" },
   ];
   type ApplicationSnapshot = Record<
@@ -342,7 +347,7 @@ const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", ses
     );
     assert.deepEqual(
       tables.rows.map((row) => row.table_name),
-      ["auth_sessions", "goals", "meals", "schema_migrations", "tracker_profile", "nutritrack_users"],
+      ["auth_sessions", "chat_action_proposals", "chat_conversations", "chat_messages", "goals", "meals", "nutritrack_users", "schema_migrations", "tracker_profile"],
     );
 
     const columns = await pool.query(
@@ -369,6 +374,10 @@ const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", ses
     assert.equal(column("tracker_profile.user_id").data_type, "uuid");
     assert.equal(column("goals.user_id").data_type, "uuid");
     assert.equal(column("meals.user_id").data_type, "uuid");
+    assert.equal(column("chat_conversations.user_id").data_type, "uuid");
+    assert.equal(column("chat_messages.content").data_type, "character varying");
+    assert.equal(column("chat_action_proposals.payload").data_type, "jsonb");
+    assert.equal(column("chat_action_proposals.expires_at").is_nullable, "NO");
 
     const indexes = await pool.query(
       "SELECT indexname FROM pg_indexes WHERE schemaname = $1 ORDER BY indexname",
@@ -377,6 +386,9 @@ const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", ses
     const indexNames = indexes.rows.map((row) => row.indexname);
     assert.ok(indexNames.includes("meals_consumption_order_idx"));
     assert.ok(indexNames.includes("meals_type_consumption_order_idx"));
+    assert.ok(indexNames.includes("chat_conversations_user_order_idx"));
+    assert.ok(indexNames.includes("chat_messages_conversation_order_idx"));
+    assert.ok(indexNames.includes("chat_action_proposals_user_status_idx"));
 
     const constraints = await pool.query(
       "SELECT conname FROM pg_constraint c JOIN pg_class r ON r.oid = c.conrelid JOIN pg_namespace n ON n.oid = r.relnamespace WHERE n.nspname = $1",
@@ -393,6 +405,11 @@ const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", ses
       "meals_consumed_quantity_bounds",
       "meals_quantity_unit_allowed",
       "meals_food_plate_is_estimate",
+      "chat_conversations_user_id_fkey",
+      "chat_messages_conversation_id_fkey",
+      "chat_action_kind_valid",
+      "chat_action_status_valid",
+      "chat_action_outcome_consistent",
     ]) {
       assert.ok(constraintNames.has(name), name);
     }
@@ -496,11 +513,11 @@ const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", ses
     const fixtureMigrations = [
       ...migrations,
       {
-        version: 3,
-        name: "003_failing_fixture.sql",
+        version: 4,
+        name: "004_failing_fixture.sql",
         sql: "CREATE TABLE rollback_probe (id INTEGER); SELECT missing_phase3_function();",
       },
-      { version: 4, name: "004_must_not_run.sql", sql: "CREATE TABLE later_probe()" },
+      { version: 5, name: "005_must_not_run.sql", sql: "CREATE TABLE later_probe()" },
     ];
     await assert.rejects(
       runMigrations({
@@ -517,7 +534,7 @@ const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", ses
       "SELECT version FROM schema_migrations ORDER BY version",
     );
     assert.equal(rollbackProbe.rows[0].object, null);
-    assert.deepEqual(migrationVersions.rows.map((row) => row.version), [1, 2]);
+    assert.deepEqual(migrationVersions.rows.map((row) => row.version), [1, 2, 3]);
 
     await pool.query("CREATE SCHEMA " + quotedConcurrentSchema);
     concurrentSchemaOwned = true;
@@ -539,13 +556,13 @@ const LEGACY_AUTH = { userId: LEGACY_ID, email: "legacy-test@invalid.local", ses
     ]);
     assert.deepEqual(
       results.map((result) => result.appliedCount).sort(),
-      [0, 2],
+      [0, 3],
     );
     const concurrentCounts = await pool.query(
       "SELECT (SELECT count(*)::int FROM " + quotedConcurrentSchema + ".schema_migrations) AS migrations, (SELECT count(*)::int FROM " + quotedConcurrentSchema + ".tracker_profile) AS profiles, (SELECT count(*)::int FROM " + quotedConcurrentSchema + ".goals) AS goals",
     );
     assert.deepEqual(concurrentCounts.rows[0], {
-      migrations: 2,
+      migrations: 3,
       profiles: 1,
       goals: 1,
     });

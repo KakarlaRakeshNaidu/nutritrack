@@ -58,6 +58,13 @@ describe("frontend API boundary", () => {
         hostname: "localhost",
       }),
     ).toBe("http://localhost:3000/api/v1");
+
+    expect(
+      resolveApiBaseUrl({
+        production: false,
+        hostname: "localhost",
+      }),
+    ).toBe("/api/v1");
   });
 
   it("constructs list and resource URLs without changing pagination metadata", async () => {

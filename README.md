@@ -65,9 +65,9 @@ listening. Logs do not print database URLs, certificate paths, SQL, or secrets.
 
 Gemini uses the optional GEMINI_API_KEY and GEMINI_MODEL pair. Both values must
 be present and nonblank. Missing AI configuration does not block startup or any
-manual/profile/goal/report API, but image extraction and meal-basics estimation
-return a safe configuration error when Gemini is unavailable. Gemini is the
-sole AI provider. The browser receives no provider credentials. Never put
+manual/profile/goal/report API, but image extraction, meal-basics estimation,
+and conversational requests return a safe configuration error when Gemini is
+unavailable. Gemini is the sole AI provider. The browser receives no provider credentials. Never put
 backend credentials into VITE-prefixed values or tracked example files.
 
 ## Database setup
@@ -83,9 +83,11 @@ npm --prefix server run db:migrate
 The first run applies pending migration files atomically under an advisory lock.
 The second must report that the schema is current. Migration 001 creates the
 original profile, goals, and constrained meals table. Migration 002 adds users,
-hashed JWT sessions, per-user ownership, and ownership indexes. Existing records
-are preserved under a reserved non-login legacy owner; no signup receives them.
-Do not edit an applied migration or reset a database to conceal conflicts.
+hashed JWT sessions, per-user ownership, and ownership indexes. Migration 003
+adds user-owned chat conversations, bounded message history, and durable action
+proposals. Existing records are preserved under a reserved non-login legacy
+owner; no signup receives them. Do not edit an applied migration or reset a
+database to conceal conflicts.
 
 Each signup atomically creates a profile defaulting to the email local part and
 Asia/Kolkata plus an all-null goals row and empty diary. The authenticated
@@ -103,6 +105,22 @@ an account containing nondefault profile, goal, or meal data. It replaces that
 empty account's defaults with the preserved legacy profile/goals and moves the
 legacy meals; it is not exposed by the API. The persisted IANA timezone defines
 the backend value of today and never rewrites meal DATE values.
+
+## Chat rollout
+
+Deployment is an operator action and was not performed while implementing chat.
+For an existing installation, deploy the backend code first, run
+npm --prefix server run db:migrate once against the verified production
+database, and confirm migration 003 before deploying the client. Run the command
+again to confirm it is a no-op. Keep the existing GEMINI_API_KEY, GEMINI_MODEL,
+JWT_SECRET, CLIENT_ORIGIN, verified PostgreSQL CA, and same-origin /api proxy
+configuration; chat adds no new secret.
+
+The production client continues to use /api/v1 through client/vercel.json.
+Do not route /api requests to the SPA document handler. Build-time VITE values are public
+and must never contain server credentials. Production verification should cover
+login, one read-only chat request, one proposal review/cancel, and one confirmed
+test action in an operator-owned account before wider use.
 
 ## Run the applications
 
@@ -135,7 +153,10 @@ Set VITE_API_BASE_URL only when the browser should use a non-default API:
 VITE_API_BASE_URL=http://localhost:3000/api/v1 npm --prefix client run dev
 ```
 
-This value is a public browser URL, not a place for secrets.
+This value is a public browser URL, not a place for secrets. Without an override,
+the Vite development server proxies same-origin `/api` requests to
+`http://localhost:3000`; hosted production uses its configured same-origin
+`/api` proxy.
 
 The backend CLIENT_ORIGIN must exactly match the browser origin. The standard
 development origin is http://localhost:5173 and preview is
@@ -173,6 +194,46 @@ credentials and redirects a 401 to login without replaying a failed write.
 Authentication errors are generic and do not expose passwords, tokens, or
 database details. Password reset, email verification, social login, account
 deletion, and administrative screens are intentionally not implemented.
+
+## Conversational nutrition interface
+
+The authenticated /chat page uses Gemini to interpret natural-language requests
+for meals, goals, reports, nutrition estimates, and general nutrition
+information. Personal facts always come from user-scoped application services;
+Gemini cannot execute SQL, choose an owner, access credentials, or call arbitrary
+URLs or commands. Conversation context is bounded, and current diary facts are
+read again instead of trusting old messages.
+
+Read-only requests may run immediately. Every create, update, delete, or goal
+replacement is stored as a reviewable proposal with an owner, exact payload,
+version, expiry, and status. Confirm/Cancel buttons or an unambiguous confirmation
+such as "Yes, save it." act only on one active proposal. Confirmation locks and
+revalidates the proposal, checks ownership and stale target timestamps, and
+records the committed outcome. Repeated confirmation returns the existing
+outcome instead of repeating the mutation.
+
+| Method and path | Purpose |
+| --- | --- |
+| POST /api/v1/chat/conversations | Create a private conversation |
+| GET /api/v1/chat/conversations | List private conversations with pagination |
+| GET /api/v1/chat/conversations/:id/messages | List bounded message history |
+| POST /api/v1/chat/conversations/:id/messages | Submit one bounded Gemini/tool turn |
+| POST /api/v1/chat/conversations/:id/image-proposals | Turn an existing extraction draft into a proposal |
+| GET /api/v1/chat/proposals/:id | Recover proposal status after an ambiguous response |
+| POST /api/v1/chat/proposals/:id/confirm | Execute one reviewed proposal once |
+| POST /api/v1/chat/proposals/:id/cancel | Make a pending proposal non-executable |
+
+Chat shares the image/text AI rate budget, two-request process concurrency
+limit, cancellation tracking, and server shutdown cleanup. Each turn has a
+30-second overall server deadline and no automatic provider retry. An ordinary
+turn is bounded to one Gemini planning pass and one allowlisted tool dispatch;
+estimate or re-estimate may add one call to the existing Gemini estimator.
+Messages are stored as plain text; raw provider reasoning and image bytes are
+not persisted. Conversations remain private account data in PostgreSQL; this
+release does not provide a conversation-deletion control.
+Unknown nutrients remain unknown and estimates are labeled. Image attachments
+reuse the existing label/plate extraction endpoint and editable MealForm, then
+require a second explicit proposal confirmation before a meal is saved.
 
 ## Meal-basics nutrition estimation API
 
@@ -785,6 +846,10 @@ the backend's exact Origin check and secure HttpOnly session cookie.
   hashed server session records, expiry/revocation, CSRF origin checks, and
   bounded authentication attempts.
 - Per-user profile/goals and private user-owned meals with ownership indexes.
+- Private, paginated chat conversations and messages with user-owned,
+  expiring action proposals and once-only transactional confirmation.
+- Allowlisted Gemini chat tools for diary reads, goal/report queries,
+  estimation, and reviewable meal/goal changes.
 - Authenticated profile read and display-name update API with immediate header refresh.
 - Complete meal create/read/list/full-update/delete APIs.
 - Read and atomic full-replacement goal APIs scoped to the session owner.
@@ -853,5 +918,5 @@ Gemini is the only AI provider used by NutriTrack.
 
 The application includes no automatic AI save, OCR service, image persistence,
 password reset, email verification, social login, account deletion,
-administrative dashboard, chat, PDF import, export/reminders, schema reset,
+administrative dashboard, PDF import, export/reminders, schema reset,
 goal history, or weight history. SMTP welcome messages do not verify ownership.
