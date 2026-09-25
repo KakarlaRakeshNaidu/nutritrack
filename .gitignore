@@ -53,6 +53,12 @@ blob-report/
 browser-profile/
 chrome-profile/
 
+# Local test source (kept on this machine)
+client/tests/
+server/tests/
+server/tests-db/
+server/tests-browser/
+
 # Windows attachment metadata files copied into WSL.
 *:Zone.Identifier
 
