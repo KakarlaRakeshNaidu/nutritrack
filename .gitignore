@@ -58,6 +58,7 @@ client/tests/
 server/tests/
 server/tests-db/
 server/tests-browser/
+server/support/
 
 # Windows attachment metadata files copied into WSL.
 *:Zone.Identifier
